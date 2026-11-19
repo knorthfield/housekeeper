@@ -4,71 +4,42 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  ./build.sh [command] [flavor] [arch] [version] [--sign] [--notarize]
-
-Commands:
-  dev       Build in debug mode and run HousekeeperApp locally
-  build     Build the Swift package in release mode
-  test      Run the Swift test suite
-  package   Build and package a Housekeeper.app + DMG
-  release   Alias for: build + package
-
-Arguments:
-  flavor    development, ad-hoc, or app-store
-            (dev defaults to development; build/package default to ad-hoc)
-            The test command is flavor-independent and accepts no flavor.
-  arch      universal, arm64, or x86_64 (defaults to host architecture)
-  version   Release version like v1.2.3
-  --sign    Sign the app and DMG with a Developer ID Application certificate
-  --notarize
-            Submit and staple the signed app and DMG using Notary API secrets
-
-Examples:
-  ./build.sh
   ./build.sh dev
   ./build.sh test
-  ./build.sh build ad-hoc arm64
-  ./build.sh package arm64 v1.2.3
-  ./build.sh package ad-hoc arm64 v1.2.3 --sign
-  ./build.sh package ad-hoc arm64 v1.2.3 --sign --notarize
-  ./build.sh package ad-hoc universal v1.2.3 --sign --notarize
-  ./build.sh release x86_64 v1.2.3
+  ./build.sh package [version] [--sign] [--notarize]
+
+Commands:
+  dev       Build in debug mode and run Housekeeper from a debug .app bundle
+  test      Run the Swift test suite
+  package   Build Housekeeper.app and a DMG for Apple silicon in dist/release
+
+Options:
+  version     Release version like v1.2.3 (default: the current git tag)
+  --sign      Sign with the Developer ID Application certificate in the keychain
+              (or the identity in CODE_SIGN_IDENTITY)
+  --notarize  Notarise and staple. Needs NOTARY_KEY_FILE (path to the .p8 file),
+              NOTARY_KEY_ID and NOTARY_ISSUER_ID
 EOF
 }
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$script_dir"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dist_dir="$repo_root/dist/release"
 temp_root="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
 bundle_root="$temp_root/Housekeeper.app"
 dev_bundle="$temp_root/Housekeeper-dev.app"
 staging_root="$temp_root/Housekeeper-dmg"
-icon_source="$repo_root/Sources/HousekeeperApp/Resources/AppIcon.png"
-iconset_dir="$temp_root/Housekeeper.iconset"
-icns_path="$repo_root/dist/Housekeeper.icns"
+icon_source="$repo_root/AppIcon.icon"
 entitlements_path="$repo_root/Housekeeper.entitlements"
-code_sign_identity="${CODE_SIGN_IDENTITY:--}"
-notary_work=""
+code_sign_identity="${CODE_SIGN_IDENTITY:-}"
 
-cleanup() {
-  if [[ -n "$notary_work" ]]; then
-    rm -rf "$notary_work"
-  fi
-}
-trap cleanup EXIT
-
-generate_icns() {
-  rm -rf "$iconset_dir"
-  mkdir -p "$iconset_dir"
-
-  local size src
-  src="$icon_source"
-  for size in 16 32 64 128 256 512; do
-    sips -z "$size" "$size" "$src" --out "$iconset_dir/icon_${size}x${size}.png" >/dev/null
-    sips -z $((size * 2)) $((size * 2)) "$src" --out "$iconset_dir/icon_${size}x${size}@2x.png" >/dev/null
-  done
-
-  iconutil -c icns "$iconset_dir" -o "$icns_path" >/dev/null
+# Compiles the Liquid Glass icon into Assets.car and AppIcon.icns in the
+# Resources folder $1. Info.plist names it with CFBundleIconName/File.
+compile_icon() {
+  local partial_plist
+  partial_plist="$(mktemp "$temp_root/Housekeeper-icon.XXXXXX")"
+  xcrun actool "$icon_source" --compile "$1" --app-icon AppIcon --platform macosx \
+    --minimum-deployment-target 14.0 --output-partial-info-plist "$partial_plist" >/dev/null
+  rm -f "$partial_plist"
 }
 
 # Copies the binary and resources from SwiftPM's exact product directory
@@ -102,8 +73,7 @@ assemble_app_bundle() {
 # sizes and shapes, segmented controls, etc.) when its binary records an SDK
 # of 26 or later. SwiftPM's default build system in Xcode 27 records the
 # deployment target (14.0) there instead of the SDK it compiled against, so a
-# local dev build would look like an old app. Used by `dev` only; release
-# packaging is left untouched.
+# local dev build would look like an old app.
 minimum_design_sdk_major=26
 
 recorded_sdk_versions() {
@@ -179,6 +149,10 @@ write_info_plist() {
   <string>Copyright © 2026 Lab421 and Kris Northfield</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
+  <key>LSArchitecturePriority</key>
+  <array>
+    <string>arm64</string>
+  </array>
   <key>LSUIElement</key>
   <true/>
   <key>NSHighResolutionCapable</key>
@@ -194,277 +168,111 @@ EOF
 }
 
 notarize_and_staple() {
-  local target="$1"
-  local submission="$target"
-
+  local target="$1" submission="$1" work=""
   if [[ "$target" == *.app ]]; then
-    submission="$notary_work/$(basename "$target").zip"
+    work="$(mktemp -d "$temp_root/Housekeeper-notary.XXXXXX")"
+    submission="$work/$(basename "$target").zip"
     /usr/bin/ditto -c -k --keepParent "$target" "$submission"
   fi
-
   echo "Submitting $(basename "$target") to Apple for notarization..."
-  xcrun notarytool submit "$submission" \
-    --key "$notary_work/AuthKey.p8" \
-    --key-id "$NOTARY_KEY_ID" \
-    --issuer "$NOTARY_ISSUER_ID" \
-    --wait
+  xcrun notarytool submit "$submission" --key "$NOTARY_KEY_FILE" --key-id "$NOTARY_KEY_ID" \
+    --issuer "$NOTARY_ISSUER_ID" --wait
+  [[ -z "$work" ]] || rm -rf "$work"
   xcrun stapler staple "$target"
   xcrun stapler validate "$target"
 }
 
-swift_release_build() {
-  local build_arch="$1"
-  local build_args=(-c release "${swift_flags[@]}")
+icon_keys='  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleIconName</key>
+  <string>AppIcon</string>'
 
-  if [[ "$build_arch" == "universal" ]]; then
-    build_args+=(--arch arm64 --arch x86_64)
-  else
-    build_args+=(--arch "$build_arch")
-  fi
-  swift build "${build_args[@]}"
-  build_products_dir="$(swift build "${build_args[@]}" --show-bin-path)"
-}
-
-command="${1:-release}"
-if [[ $# -gt 0 ]]; then
-  case "$1" in
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    dev|build|test|package|release)
-      command="$1"
-      shift
-      ;;
-  esac
-fi
-
-if [[ "$command" == "test" ]]; then
-  if [[ $# -gt 0 ]]; then
-    echo "The test command does not accept a build flavor." >&2
-    exit 1
-  fi
-  flavor="development"
-else
-  if [[ "$command" == "dev" ]]; then
-    flavor="development"
-  else
-    flavor="ad-hoc"
-  fi
-
-  if [[ $# -gt 0 ]]; then
-    case "$1" in
-      development|ad-hoc|app-store)
-        flavor="$1"
-        shift
-        ;;
-    esac
-  fi
-fi
-
-case "$flavor" in
-  development)
-    compilation_condition="HOUSEKEEPER_BUILD_DEVELOPMENT"
-    ;;
-  ad-hoc)
-    compilation_condition="HOUSEKEEPER_BUILD_AD_HOC"
-    ;;
-  app-store)
-    compilation_condition="HOUSEKEEPER_BUILD_APP_STORE"
-    ;;
-  *)
-    echo "Unsupported build flavor: $flavor" >&2
-    exit 1
-    ;;
-esac
-
-swift_flags=(-Xswiftc "-D$compilation_condition")
+command="${1:-package}"
+[[ $# -eq 0 ]] || shift
 
 sign_requested=false
 notarize_requested=false
-positional_args=()
+version=""
 for arg in "$@"; do
   case "$arg" in
-    --sign)
-      sign_requested=true
-      ;;
-    --notarize)
-      notarize_requested=true
-      ;;
-    -*)
-      echo "Unknown option: $arg" >&2
-      usage
-      exit 1
-      ;;
-    *)
-      positional_args+=("$arg")
-      ;;
+    --sign) sign_requested=true ;;
+    --notarize) notarize_requested=true ;;
+    -*) echo "Unknown option: $arg" >&2; usage; exit 1 ;;
+    *) version="$arg" ;;
   esac
 done
-if [[ ${#positional_args[@]} -gt 0 ]]; then
-  set -- "${positional_args[@]}"
-else
-  set --
-fi
 
-if [[ $# -gt 2 ]]; then
-  echo "Too many arguments" >&2
-  usage
-  exit 1
-fi
-
-arch="${1:-$(uname -m)}"
-version="${2:-}"
-
-if [[ "$sign_requested" == true ]]; then
-  if [[ "$command" != "package" && "$command" != "release" ]]; then
-    echo "--sign is only supported with package or release" >&2
-    exit 1
-  fi
-  if [[ "$code_sign_identity" == "-" ]]; then
-    code_sign_identity="$(
-      security find-identity -v -p codesigning |
-        awk '/Developer ID Application:/ && !identity { identity=$2 } END { print identity }'
-    )"
-    if [[ -z "$code_sign_identity" ]]; then
-      echo "No valid Developer ID Application identity was found in the keychain" >&2
-      exit 1
-    fi
-  fi
-fi
-
-if [[ "$notarize_requested" == true ]]; then
-  if [[ "$command" != "package" && "$command" != "release" ]]; then
-    echo "--notarize is only supported with package or release" >&2
-    exit 1
-  fi
-  if [[ "$sign_requested" != true ]]; then
-    echo "--notarize requires --sign" >&2
-    exit 1
-  fi
-  if [[ -z "${NOTARY_API_KEY_P8:-}" || -z "${NOTARY_KEY_ID:-}" || -z "${NOTARY_ISSUER_ID:-}" ]]; then
-    echo "Notarization requires NOTARY_API_KEY_P8, NOTARY_KEY_ID, and NOTARY_ISSUER_ID" >&2
-    exit 1
-  fi
-  notary_work="$(mktemp -d "$temp_root/Housekeeper-notary.XXXXXX")"
-  printf '%s' "$NOTARY_API_KEY_P8" | base64 --decode > "$notary_work/AuthKey.p8"
-  chmod 600 "$notary_work/AuthKey.p8"
-fi
+cd "$repo_root"
 
 case "$command" in
+  -h|--help)
+    usage
+    ;;
+
   dev)
-    cd "$repo_root"
     # Build and run from inside a debug .app bundle rather than the bare
     # `swift run` binary. macOS attributes TCC checks (Photos, Automation) to
     # the bundle identity declared in Info.plist; an unbundled binary has none,
-    # so those checks get misattributed to whatever launched it (e.g. the
-    # terminal you're using) instead of Housekeeper, making them unreliable to test.
-    swift build "${swift_flags[@]}"
-
-    build_products_dir="$(swift build "${swift_flags[@]}" --show-bin-path)"
-    assemble_app_bundle "$build_products_dir" "$dev_bundle"
+    # so those checks get misattributed to whatever launched it.
+    swift build
+    assemble_app_bundle "$(swift build --show-bin-path)" "$dev_bundle"
     contents_dir="$dev_bundle/Contents"
-    macos_dir="$contents_dir/MacOS"
-    # Dev builds only: give the local app the same system design as the
-    # release, whatever the local SwiftPM records.
-    record_real_sdk_version "$macos_dir/HousekeeperApp"
-    verify_design_sdk "$macos_dir/HousekeeperApp" warn
-
-    write_info_plist "$contents_dir" "0.0.0-dev" '  <key>HousekeeperBuildFlavor</key>
-  <string>development</string>'
-
+    record_real_sdk_version "$contents_dir/MacOS/HousekeeperApp"
+    verify_design_sdk "$contents_dir/MacOS/HousekeeperApp" warn
+    compile_icon "$contents_dir/Resources"
+    write_info_plist "$contents_dir" "0.0.0-dev" "$icon_keys"
     # Ad-hoc sign so TCC has a stable bundle identity to attach grants to.
     codesign --force --deep --sign - "$dev_bundle" >/dev/null 2>&1
-    # Exec the binary inside the bundle (not `open`) so stdout/stderr stay
-    # attached to this terminal while macOS still reads the adjacent
-    # Info.plist for the bundle identity TCC checks need.
-    exec "$macos_dir/HousekeeperApp"
-    ;;
-
-  build)
-    cd "$repo_root"
-    swift_release_build "$arch"
+    # Exec the binary (not `open`) so stdout/stderr stay in this terminal.
+    exec "$contents_dir/MacOS/HousekeeperApp"
     ;;
 
   test)
-    cd "$repo_root"
-    # Tests use the development flavor (no direct licensing), so no
-    # compilation condition is passed — plain `swift test` works as before.
     swift test
     ;;
 
-  package|release)
-    if [[ -z "$version" ]]; then
-      if git -C "$repo_root" describe --tags --exact-match >/dev/null 2>&1; then
-        version="$(git -C "$repo_root" describe --tags --exact-match)"
-      else
-        version="v0.0.0-local"
+  package)
+    if [[ "$notarize_requested" == true ]]; then
+      if [[ "$sign_requested" != true ]]; then
+        echo "--notarize requires --sign" >&2
+        exit 1
+      fi
+      if [[ ! -f "${NOTARY_KEY_FILE:-}" || -z "${NOTARY_KEY_ID:-}" || -z "${NOTARY_ISSUER_ID:-}" ]]; then
+        echo "Notarization requires NOTARY_KEY_FILE, NOTARY_KEY_ID, and NOTARY_ISSUER_ID" >&2
+        exit 1
+      fi
+    fi
+    if [[ "$sign_requested" == true && -z "$code_sign_identity" ]]; then
+      code_sign_identity="$(
+        security find-identity -v -p codesigning |
+          awk '/Developer ID Application:/ && !identity { identity=$2 } END { print identity }'
+      )"
+      if [[ -z "$code_sign_identity" ]]; then
+        echo "No valid Developer ID Application identity was found in the keychain" >&2
+        exit 1
       fi
     fi
 
-    if [[ "$version" == v* ]]; then
-      version_number="${version#v}"
-    else
-      version_number="$version"
-      version="v$version"
+    if [[ -z "$version" ]]; then
+      version="$(git describe --tags --exact-match 2>/dev/null || echo v0.0.0-local)"
     fi
+    version="v${version#v}"
+    version_number="${version#v}"
 
-    case "$arch" in
-      universal)
-        dmg_suffix=""
-        ;;
-      arm64)
-        dmg_suffix="darwin-arm64"
-        ;;
-      x86_64)
-        dmg_suffix="darwin-x86_64"
-        ;;
-      *)
-        echo "Unsupported architecture: $arch" >&2
-        exit 1
-        ;;
-    esac
-
-    cd "$repo_root"
-    swift_release_build "$arch"
-
-    if [[ -f "$icon_source" ]]; then
-      mkdir -p "$repo_root/dist"
-      generate_icns
-    fi
-
-    assemble_app_bundle "$build_products_dir" "$bundle_root"
+    swift build -c release --arch arm64
+    assemble_app_bundle "$(swift build -c release --arch arm64 --show-bin-path)" "$bundle_root"
     contents_dir="$bundle_root/Contents"
-
-    if [[ "$arch" == "universal" ]]; then
-      lipo "$bundle_root/Contents/MacOS/HousekeeperApp" -verify_arch arm64
-      lipo "$bundle_root/Contents/MacOS/HousekeeperApp" -verify_arch x86_64
-    fi
-
-    write_info_plist "$contents_dir" "$version_number" '  <key>CFBundleIconFile</key>
-  <string>Housekeeper</string>
+    record_real_sdk_version "$contents_dir/MacOS/HousekeeperApp"
+    verify_design_sdk "$contents_dir/MacOS/HousekeeperApp"
+    compile_icon "$contents_dir/Resources"
+    write_info_plist "$contents_dir" "$version_number" "$icon_keys"'
   <key>LSApplicationCategoryType</key>
-  <string>public.app-category.productivity</string>
-  <key>HousekeeperBuildFlavor</key>
-  <string>'"$flavor"'</string>'
-
-    if [[ -f "$icns_path" ]]; then
-      cp "$icns_path" "$bundle_root/Contents/Resources/Housekeeper.icns"
-    fi
+  <string>public.app-category.productivity</string>'
 
     if [[ "$sign_requested" == true ]]; then
-      # Sign outside the repository. Folders under Documents can receive
-      # File Provider/provenance metadata after a copy, invalidating an
-      # otherwise-correct signature before the DMG is assembled.
       xattr -cr "$bundle_root"
-      codesign \
-        --force \
-        --deep \
-        --options runtime \
-        --timestamp \
-        --entitlements "$entitlements_path" \
-        --sign "$code_sign_identity" \
-        "$bundle_root"
+      codesign --force --deep --options runtime --timestamp \
+        --entitlements "$entitlements_path" --sign "$code_sign_identity" "$bundle_root"
       codesign --verify --deep --strict --verbose=2 "$bundle_root"
       if [[ "$notarize_requested" == true ]]; then
         notarize_and_staple "$bundle_root"
@@ -472,43 +280,24 @@ case "$command" in
     fi
 
     mkdir -p "$dist_dir"
-    rm -rf "$dist_dir/Housekeeper.app"
-    /usr/bin/ditto --noextattr --noqtn "$bundle_root" "$dist_dir/Housekeeper.app"
-
-    rm -rf "$staging_root"
+    rm -rf "$dist_dir/Housekeeper.app" "$staging_root"
     mkdir -p "$staging_root"
+    /usr/bin/ditto --noextattr --noqtn "$bundle_root" "$dist_dir/Housekeeper.app"
     /usr/bin/ditto --noextattr --noqtn "$bundle_root" "$staging_root/Housekeeper.app"
-    if [[ "$sign_requested" == true ]]; then
-      codesign --verify --deep --strict --verbose=2 "$staging_root/Housekeeper.app"
-      if [[ "$notarize_requested" == true ]]; then
-        xcrun stapler validate "$staging_root/Housekeeper.app"
-      fi
-    fi
     ln -s /Applications "$staging_root/Applications"
 
-    if [[ "$arch" == "universal" ]]; then
-      dmg_path="$dist_dir/Housekeeper-${version}.dmg"
-    else
-      dmg_path="$dist_dir/Housekeeper-${version}-${dmg_suffix}.dmg"
-    fi
-    hdiutil create \
-      -volname "Housekeeper" \
-      -srcfolder "$staging_root" \
-      -ov \
-      -format UDZO \
-      "$dmg_path"
+    dmg_path="$dist_dir/Housekeeper-${version}.dmg"
+    hdiutil create -volname "Housekeeper" -srcfolder "$staging_root" -ov -format UDZO "$dmg_path"
+    rm -rf "$staging_root"
 
     if [[ "$sign_requested" == true ]]; then
       codesign --force --timestamp --sign "$code_sign_identity" "$dmg_path"
       codesign --verify --strict --verbose=2 "$dmg_path"
       if [[ "$notarize_requested" == true ]]; then
         notarize_and_staple "$dmg_path"
-        codesign --verify --strict --verbose=2 "$dmg_path"
       fi
     fi
-
     echo "Created $dmg_path"
-    rm -rf "$iconset_dir" "$staging_root" "$icns_path"
     ;;
 
   *)

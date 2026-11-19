@@ -16,13 +16,11 @@
 
 import AppKit
 
-/// Bundled brand assets: the full-colour Housekeeper leaf app icon and the white
-/// glyph used in the menu bar (`Resources/AppIcon.png`, `Resources/TrayIcon.png`
+/// The app icon image, for the About panel and the brand mark
+/// (`Resources/AppIcon.png`, exported from `AppIcon.icon`).
 @MainActor
 enum AppIcons {
     static let appIcon: NSImage? = loadImage("AppIcon")
-    /// White-on-transparent leaf glyph, sized down for the menu bar.
-    static let trayGlyph: NSImage? = loadImage("TrayIcon")
 
     private static func loadImage(_ name: String) -> NSImage? {
         let candidates: [URL?] = [

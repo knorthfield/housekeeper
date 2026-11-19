@@ -19,7 +19,7 @@ import SwiftUI
 import Combine
 import HousekeeperCore
 
-/// Menu-bar item: Housekeeper's leaf glyph, tinted by macOS. Clicking it shows
+/// Menu-bar item: Housekeeper's sparkles glyph, tinted by macOS. Clicking it shows
 /// a SwiftUI quick panel (`QuickPanelView`) styled as a dark glass popover,
 /// in place of the old plain `NSMenu`.
 @MainActor
@@ -127,13 +127,13 @@ final class StatusBarController: NSObject {
 
     /// Menu bar glyph, drawn as a template image (black and clear) so macOS
     /// tints it like every other menu bar icon, in light and dark mode. The
-    /// state shows in the shape, never in color: a filled leaf while
-    /// watching, an outlined leaf when paused.
+    /// state shows in the shape, never in color: a filled glyph while
+    /// watching, an outlined glyph when paused.
     private static func glyph(paused: Bool, size: CGFloat = 18) -> NSImage {
         // Smaller than its box to match the visual weight of the system
         // menu bar glyphs around it.
         let config = NSImage.SymbolConfiguration(pointSize: size * 0.78, weight: .regular)
-        let symbol = NSImage(systemSymbolName: paused ? "leaf" : "leaf.fill", accessibilityDescription: "Housekeeper")?
+        let symbol = NSImage(systemSymbolName: paused ? "sparkles.rectangle.stack" : "sparkles.rectangle.stack.fill", accessibilityDescription: "Housekeeper")?
             .withSymbolConfiguration(config)
 
         let image = NSImage(size: NSSize(width: size, height: size))
