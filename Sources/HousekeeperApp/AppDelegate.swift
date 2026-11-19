@@ -88,10 +88,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if warnAndQuitIfRunningFromDiskImage() {
-            return
-        }
-
         if model == nil { model = Self.launchContext }
 
         // Running as a bare dev executable (no packaged .app/Info.plist) shows
@@ -107,25 +103,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         model?.applyDockIconPreference()
         setUpStatusBar()
-    }
-
-    /// Opening Housekeeper straight from the mounted installer disk image (before
-    /// dragging it to Applications) is the most common way a first launch
-    /// ends up somewhere macOS gates behind a permission prompt — `/Volumes`
-    /// is TCC-protected the same way Documents/Desktop/Downloads are, so
-    /// just starting up from there is enough to trigger it, regardless of
-    /// what Housekeeper's own code does. Catch it before any
-    /// of that runs and ask the user to move it first instead.
-    private func warnAndQuitIfRunningFromDiskImage() -> Bool {
-        guard Bundle.main.bundleURL.path.hasPrefix("/Volumes/") else { return false }
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Move Housekeeper to Applications first"
-        alert.informativeText = "Housekeeper is running from the installer disk image. Drag Housekeeper into your Applications folder, then open it from there."
-        alert.addButton(withTitle: "Quit")
-        alert.runModal()
-        NSApp.terminate(nil)
-        return true
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

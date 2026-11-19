@@ -11,7 +11,7 @@ Usage:
 Commands:
   dev       Build in debug mode and run Housekeeper from a debug .app bundle
   test      Run the Swift test suite
-  package   Build Housekeeper.app and a DMG for Apple silicon in dist/release
+  package   Build Housekeeper.app and Housekeeper.zip for Apple silicon in dist/release
 
 Options:
   version     Release version like v1.2.3 (default: the current git tag)
@@ -27,7 +27,6 @@ dist_dir="$repo_root/dist/release"
 temp_root="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
 bundle_root="$temp_root/Housekeeper.app"
 dev_bundle="$temp_root/Housekeeper-dev.app"
-staging_root="$temp_root/Housekeeper-dmg"
 icon_source="$repo_root/AppIcon.icon"
 entitlements_path="$repo_root/Housekeeper.entitlements"
 code_sign_identity="${CODE_SIGN_IDENTITY:-}"
@@ -280,24 +279,10 @@ case "$command" in
     fi
 
     mkdir -p "$dist_dir"
-    rm -rf "$dist_dir/Housekeeper.app" "$staging_root"
-    mkdir -p "$staging_root"
+    rm -rf "$dist_dir/Housekeeper.app" "$dist_dir/Housekeeper.zip"
     /usr/bin/ditto --noextattr --noqtn "$bundle_root" "$dist_dir/Housekeeper.app"
-    /usr/bin/ditto --noextattr --noqtn "$bundle_root" "$staging_root/Housekeeper.app"
-    ln -s /Applications "$staging_root/Applications"
-
-    dmg_path="$dist_dir/Housekeeper-${version}.dmg"
-    hdiutil create -volname "Housekeeper" -srcfolder "$staging_root" -ov -format UDZO "$dmg_path"
-    rm -rf "$staging_root"
-
-    if [[ "$sign_requested" == true ]]; then
-      codesign --force --timestamp --sign "$code_sign_identity" "$dmg_path"
-      codesign --verify --strict --verbose=2 "$dmg_path"
-      if [[ "$notarize_requested" == true ]]; then
-        notarize_and_staple "$dmg_path"
-      fi
-    fi
-    echo "Created $dmg_path"
+    /usr/bin/ditto -c -k --keepParent "$dist_dir/Housekeeper.app" "$dist_dir/Housekeeper.zip"
+    echo "Created $dist_dir/Housekeeper.zip"
     ;;
 
   *)

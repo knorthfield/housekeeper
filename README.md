@@ -20,7 +20,7 @@ Kris Northfield in November 2026. Thank you to the Forel authors.
 brew install --cask knorthfield/tap/housekeeper
 ```
 
-Or download the DMG from [Releases](https://github.com/knorthfield/housekeeper/releases) and
+Or download `Housekeeper.zip` from [Releases](https://github.com/knorthfield/housekeeper/releases) and
 move Housekeeper to Applications. Housekeeper needs macOS 14 or later on an Apple silicon Mac.
 
 ## What it does
@@ -44,7 +44,7 @@ Scripts run with `/bin/bash`, once for each file, with the path in `$HOUSEKEEPER
 swift build
 swift test
 ./build.sh dev                                # run from a debug .app bundle
-./build.sh package v1.0.0 --sign --notarize   # signed, notarised DMG in dist/release
+./build.sh package v1.0.0 --sign --notarize   # signed, notarised zip in dist/release
 ```
 
 ## Licence
