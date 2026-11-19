@@ -1,0 +1,734 @@
+// Forel - A native macOS file-automation app
+// Copyright (C) 2026  Lab421
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import Testing
+import Foundation
+@testable import ForelCore
+
+@Suite struct ActionExecutorTests {
+    @Test func syncFoldersCopiesRelativePathToTarget() throws {
+        let dir = TempDir()
+        let sourceRoot = dir.dir("Source")
+        let sourceSubdir = (sourceRoot as NSString).appendingPathComponent("Docs")
+        try FileManager.default.createDirectory(atPath: sourceSubdir, withIntermediateDirectories: true)
+        let file = (sourceSubdir as NSString).appendingPathComponent("a.txt")
+        try "hello".write(toFile: file, atomically: true, encoding: .utf8)
+        let targetRoot = dir.dir("Target")
+
+        let action = makeAction(.syncFolders, .object([
+            ActionParam.destination: .string(targetRoot),
+        ]))
+
+        let plan = try ActionExecutor.plan(action, path: file, root: sourceRoot)
+        let expected = ((targetRoot as NSString).appendingPathComponent("Docs") as NSString).appendingPathComponent("a.txt")
+        #expect(plan.targetPath == expected)
+
+        let applied = try ActionExecutor.execute(action, path: file, root: sourceRoot)
+        #expect(applied.copiedPath == expected)
+        #expect(try String(contentsOfFile: expected, encoding: .utf8) == "hello")
+    }
+
+    @Test func syncFoldersSkipsItemsAlreadyInATargetNestedInTheWatchedFolder() throws {
+        let dir = TempDir()
+        let sourceRoot = dir.dir("Source")
+        let targetRoot = (sourceRoot as NSString).appendingPathComponent("DMG")
+        try FileManager.default.createDirectory(atPath: targetRoot, withIntermediateDirectories: true)
+        let file = (targetRoot as NSString).appendingPathComponent("a.txt")
+        try "target".write(toFile: file, atomically: true, encoding: .utf8)
+
+        let action = makeAction(.syncFolders, .object([
+            ActionParam.destination: .string(targetRoot),
+        ]))
+
+        #expect(try ActionExecutor.plan(action, path: file, root: sourceRoot).status == .wouldSkip)
+    }
+
+    @Test func syncFoldersCreatesCounterpartDirectoryWithoutRecursiveCopy() throws {
+        let dir = TempDir()
+        let sourceRoot = dir.dir("Source")
+        let targetRoot = dir.dir("Target")
+        let sourceFolder = (sourceRoot as NSString).appendingPathComponent("RENALTO")
+        try FileManager.default.createDirectory(atPath: sourceFolder, withIntermediateDirectories: true)
+        try "nested".write(toFile: (sourceFolder as NSString).appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+
+        let action = makeAction(.syncFolders, .object([
+            ActionParam.destination: .string(targetRoot),
+        ]))
+
+        let applied = try ActionExecutor.execute(action, path: sourceFolder, root: sourceRoot)
+        let counterpart = (targetRoot as NSString).appendingPathComponent("RENALTO")
+        #expect(applied.copiedPath == counterpart)
+        var isDirectory: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: counterpart, isDirectory: &isDirectory))
+        #expect(isDirectory.boolValue)
+        #expect(!FileManager.default.fileExists(atPath: (counterpart as NSString).appendingPathComponent("a.txt")))
+    }
+
+    @Test func syncFoldersUpdatesCounterpartWhenItAlreadyExists() throws {
+        let dir = TempDir()
+        let sourceRoot = dir.dir("Source")
+        let targetRoot = dir.dir("Target")
+        let source = (sourceRoot as NSString).appendingPathComponent("a.txt")
+        let existing = (targetRoot as NSString).appendingPathComponent("a.txt")
+        try "new".write(toFile: source, atomically: true, encoding: .utf8)
+        try "old".write(toFile: existing, atomically: true, encoding: .utf8)
+
+        let action = makeAction(.syncFolders, .object([
+            ActionParam.destination: .string(targetRoot),
+        ]))
+
+        let applied = try ActionExecutor.execute(action, path: source, root: sourceRoot)
+        #expect(applied.copiedPath == existing)
+        #expect(try String(contentsOfFile: existing, encoding: .utf8) == "new")
+        let renamed = (targetRoot as NSString).appendingPathComponent("a (1).txt")
+        #expect(!FileManager.default.fileExists(atPath: renamed))
+    }
+
+}
+
+extension ActionExecutorTests {
+    @Test func addAndRemoveTagUpdatesFinderTagXattrWithoutDuplicates() throws {
+        let dir = TempDir()
+        let file = dir.file("document.txt", contents: "hello")
+        let add = makeAction(.addTag, .object(["tags": .stringArray(["Project"])]))
+        let remove = makeAction(.removeTag, .object(["tags": .stringArray(["Project"])]))
+
+        _ = try ActionExecutor.execute(add, path: file)
+        _ = try ActionExecutor.execute(add, path: file)
+        #expect(FinderTags.read(file) == ["Project"])
+
+        _ = try ActionExecutor.execute(remove, path: file)
+        #expect(FinderTags.read(file).isEmpty)
+    }
+
+    @Test func setColorLabelReplacesExistingColorAndPreservesTextTags() throws {
+        let dir = TempDir()
+        let file = dir.file("image.png", contents: "png")
+        _ = try ActionExecutor.execute(makeAction(.addTag, .object(["tags": .stringArray(["Project"])])), path: file)
+        _ = try ActionExecutor.execute(makeAction(.setColorLabel, .object(["color": .string("Red")])), path: file)
+        _ = try ActionExecutor.execute(makeAction(.setColorLabel, .object(["color": .string("Blue")])), path: file)
+
+        #expect(FinderTags.read(file) == ["Project", "Blue\n4"])
+    }
+
+    @Test func setColorLabelWithMissingColorClearsExistingLabel() throws {
+        let dir = TempDir()
+        let file = dir.file("image.png", contents: "png")
+        _ = try ActionExecutor.execute(makeAction(.addTag, .object(["tags": .stringArray(["Project"])])), path: file)
+        _ = try ActionExecutor.execute(makeAction(.setColorLabel, .object(["color": .string("Red")])), path: file)
+        _ = try ActionExecutor.execute(makeAction(.setColorLabel, .object([:])), path: file)
+
+        #expect(FinderTags.read(file) == ["Project"])
+    }
+
+    @Test func renamePatternDoesNotAppendExtensionTwiceWhenExtensionTokenIsUsed() throws {
+        let dir = TempDir()
+        let file = dir.file("report.txt", contents: "hello")
+        let rename = makeAction(.rename, .object(["pattern": .string("{name}-archived.{extension}")]))
+
+        _ = try ActionExecutor.execute(rename, path: file)
+
+        #expect(!FileManager.default.fileExists(atPath: file))
+        #expect(FileManager.default.fileExists(atPath: (dir.path as NSString).appendingPathComponent("report-archived.txt")))
+        #expect(!FileManager.default.fileExists(atPath: (dir.path as NSString).appendingPathComponent("report-archived.txt.txt")))
+    }
+
+    @Test func compressFileCreatesZipBesideItAndKeepsTheSource() throws {
+        let dir = TempDir()
+        let file = dir.file("report.txt", contents: "hello")
+
+        let action = makeAction(.compress, .object([:]))
+        let plan = try ActionExecutor.plan(action, path: file)
+        #expect(plan.status == .wouldRun)
+        #expect(plan.targetPath == (dir.path as NSString).appendingPathComponent("report.zip"))
+        #expect(plan.finalPath == file)
+
+        let applied = try ActionExecutor.execute(action, path: file)
+
+        #expect(applied.newPath == file)
+        #expect(applied.copiedPath == (dir.path as NSString).appendingPathComponent("report.zip"))
+        #expect(applied.undo == .none)
+        #expect(FileManager.default.fileExists(atPath: file))
+        try assertZip(at: applied.copiedPath!, contains: ["report.txt"], with: ["report.txt": "hello"])
+    }
+
+    @Test func compressWritesToItsConfiguredDestination() throws {
+        let dir = TempDir()
+        let file = dir.file("report.txt", contents: "hello")
+        let archives = (dir.path as NSString).appendingPathComponent("Archives/{year}")
+        let year = Calendar.current.component(.year, from: Date())
+
+        let applied = try ActionExecutor.execute(makeAction(.compress, .object([ActionParam.destination: .string(archives)])), path: file)
+
+        #expect(applied.copiedPath == (dir.path as NSString).appendingPathComponent("Archives/\(year)/report.zip"))
+    }
+
+    @Test func compressFolderArchivesItsContentsRecursively() throws {
+        let dir = TempDir()
+        let folder = dir.dir("Export")
+        try "a".write(toFile: (folder as NSString).appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        let nested = dir.dir("Export/Nested")
+        try "b".write(toFile: (nested as NSString).appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+
+        let applied = try ActionExecutor.execute(makeAction(.compress, .object([:])), path: folder)
+
+        #expect(applied.copiedPath == (dir.path as NSString).appendingPathComponent("Export.zip"))
+        #expect(FileManager.default.fileExists(atPath: folder))
+        // Folder archives keep the folder itself as the wrapper entry, like Finder.
+        try assertZip(at: applied.copiedPath!, contains: ["Export/a.txt", "Export/Nested/b.txt"], with: ["Export/a.txt": "a", "Export/Nested/b.txt": "b"])
+    }
+
+    @Test(arguments: ["preview", "manual", "watcher"], [false, true])
+    func compressUsesCompressionAcrossExecutionPaths(execution: String, isFolder: Bool) throws {
+        let dir = TempDir()
+        let watched = dir.dir("Watched")
+        let contents = String(repeating: "Compressible file contents\n", count: 10_000)
+        let source: String
+        let archivedName: String
+        let original: String
+        if isFolder {
+            source = dir.dir("Watched/Export")
+            _ = dir.dir("Watched/Export/Nested")
+            original = dir.file("Watched/Export/Nested/report.txt", contents: contents)
+            archivedName = "Export/Nested/report.txt"
+        } else {
+            source = dir.file("Watched/report.txt", contents: contents)
+            original = source
+            archivedName = "report.txt"
+        }
+        let archivePath = watched + (isFolder ? "/Export.zip" : "/report.zip")
+        let db = try Database(path: ":memory:")
+        let folder = WatchedFolder(path: watched)
+        try db.insertFolder(folder)
+        var rule = makeRule(folderId: folder.id, name: "Compress")
+        rule.conditions = [isFolder
+            ? makeCondition(.kind, .is, "folder", ruleId: rule.id)
+            : makeCondition(.extension_, .is, "txt", ruleId: rule.id)]
+        rule.actions = [makeAction(.compress, .object([:]), ruleId: rule.id)]
+        try db.insertRule(rule)
+        let rules = try db.executionRules(folderID: folder.id, isPro: false)
+
+        if execution == "watcher" {
+            let coordinator = WatcherCoordinator(db: db, settleInterval: 0.01)
+            coordinator.enqueue(event: .pathArrived(source))
+            coordinator.waitForPendingEvents()
+            let history = try db.listHistory()
+            #expect(history.count == 1)
+            #expect(history.first?.status == .applied)
+        } else {
+            let entries = RuleEngine.walkEntries(root: watched, maxDepth: RuleEngine.maxRuleDepth(rules))
+            #expect(entries.map(\.path) == [source])
+            for entry in entries {
+                if execution == "preview" {
+                    let preview = try #require(RuleEngine.previewFile(path: entry.path, depth: entry.depth, rules: rules, isPro: false))
+                    #expect(preview.rules.first?.actions.first?.targetPath == archivePath)
+                } else {
+                    let result = RuleEngine.run(path: entry.path, depth: entry.depth, rules: rules, batchId: "manual", root: watched, isPro: false)
+                    #expect(result.history.count == 1)
+                    #expect(result.history.first?.status == .applied)
+                }
+            }
+        }
+
+        #expect(try String(contentsOfFile: original, encoding: .utf8) == contents)
+        if execution == "preview" {
+            #expect(!FileManager.default.fileExists(atPath: archivePath))
+        } else {
+            let attributes = try FileManager.default.attributesOfItem(atPath: archivePath)
+            let size = try #require(attributes[.size] as? NSNumber)
+            #expect(size.intValue < contents.utf8.count / 10)
+            try assertZip(at: archivePath, contains: [archivedName], with: [archivedName: contents])
+        }
+    }
+
+    @Test func compressWithExistingArchiveRenamesTheNewOne() throws {
+        let dir = TempDir()
+        let file = dir.file("report.txt", contents: "new")
+        let existing = (dir.path as NSString).appendingPathComponent("report.zip")
+        try "old".write(toFile: existing, atomically: true, encoding: .utf8)
+
+        let plan = try ActionExecutor.plan(makeAction(.compress, .object([:])), path: file)
+        #expect(plan.targetPath == (dir.path as NSString).appendingPathComponent("report (1).zip"))
+        #expect(plan.description.contains("renamed"))
+
+        let applied = try ActionExecutor.execute(makeAction(.compress, .object([:])), path: file)
+
+        #expect(applied.copiedPath == (dir.path as NSString).appendingPathComponent("report (1).zip"))
+        try assertZip(at: applied.copiedPath!, contains: ["report.txt"], with: ["report.txt": "new"])
+        #expect(try String(contentsOfFile: existing, encoding: .utf8) == "old")
+    }
+
+    /// Extracts `zip` and checks it contains exactly `names`, each with the
+    /// given contents.
+    private func assertZip(at zip: String, contains names: [String], with contents: [String: String]) throws {
+        let out = TempDir()
+        try FileManager.default.unzipItem(at: URL(fileURLWithPath: zip), to: URL(fileURLWithPath: out.path))
+        var seen: Set<String> = []
+        let enumerator = FileManager.default.enumerator(atPath: out.path)
+        while let item = enumerator?.nextObject() as? String {
+            let full = (out.path as NSString).appendingPathComponent(item)
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: full, isDirectory: &isDir), !isDir.boolValue else { continue }
+            seen.insert(item)
+            if let expected = contents[item] {
+                #expect(try String(contentsOfFile: full, encoding: .utf8) == expected)
+            }
+        }
+        #expect(seen == Set(names))
+    }
+
+    @Test func moveToFolderExpandsDateTokensFromTheFileCreationDate() throws {
+        let dir = TempDir()
+        let file = dir.file("invoice.pdf", contents: "hello")
+        let calendar = Calendar.current
+        let created = calendar.date(from: DateComponents(year: 2026, month: 3, day: 5, hour: 12))!
+        try FileManager.default.setAttributes([.creationDate: created], ofItemAtPath: file)
+        let destination = dir.dir("Archive/{year}/{month}-{day}")
+
+        let action = makeAction(.moveToFolder, .object([ActionParam.destination: .string(destination)]))
+        let plan = try ActionExecutor.plan(action, path: file)
+        let expectedDir = (dir.path as NSString).appendingPathComponent("Archive/2026/03-05")
+        #expect(plan.targetPath == (expectedDir as NSString).appendingPathComponent("invoice.pdf"))
+
+        let applied = try ActionExecutor.execute(action, path: file)
+        #expect(applied.newPath == (expectedDir as NSString).appendingPathComponent("invoice.pdf"))
+        #expect(try String(contentsOfFile: applied.newPath, encoding: .utf8) == "hello")
+    }
+
+    @Test func copyToFolderExpandsDateTokensAndKeepsTheSource() throws {
+        let dir = TempDir()
+        let file = dir.file("shot.png", contents: "png")
+        let calendar = Calendar.current
+        let created = calendar.date(from: DateComponents(year: 2026, month: 7, day: 14, hour: 12))!
+        try FileManager.default.setAttributes([.creationDate: created], ofItemAtPath: file)
+        let destination = dir.dir("Screenshots/{year}/{month}")
+
+        let action = makeAction(.copyToFolder, .object([ActionParam.destination: .string(destination)]))
+        let applied = try ActionExecutor.execute(action, path: file)
+
+        #expect(FileManager.default.fileExists(atPath: file))
+        #expect(applied.copiedPath == (dir.path as NSString).appendingPathComponent("Screenshots/2026/07/shot.png"))
+    }
+
+    @Test func destinationStartingWithTildeResolvesToTheHomeFolder() throws {
+        let dir = TempDir()
+        let file = dir.file("receipt.pdf", contents: "pdf")
+        let year = Calendar.current.component(.year, from: Date())
+        let home = NSHomeDirectory() as NSString
+
+        for (destination, expected) in [("~/Archive", "Archive"), ("~/Archive/{year}", "Archive/\(year)")] {
+            for kind in [ActionKind.moveToFolder, .copyToFolder] {
+                let plan = try ActionExecutor.plan(makeAction(kind, .object([ActionParam.destination: .string(destination)])), path: file)
+                #expect(plan.targetPath == (home.appendingPathComponent(expected) as NSString).appendingPathComponent("receipt.pdf"))
+            }
+        }
+    }
+
+    @Test func destinationTokensWithUnknownBracesAreLeftAlone() throws {
+        let dir = TempDir()
+        let file = dir.file("note.txt", contents: "hi")
+        let destination = dir.dir("Keep {literal}/{year}")
+
+        let applied = try ActionExecutor.execute(makeAction(.moveToFolder, .object([ActionParam.destination: .string(destination)])), path: file)
+
+        let expectedDir = (dir.path as NSString).appendingPathComponent("Keep {literal}/\(Calendar.current.component(.year, from: Date()))")
+        #expect(applied.newPath == (expectedDir as NSString).appendingPathComponent("note.txt"))
+    }
+
+    @Test func uncompressZipExtractsSingleRootItemAndMovesArchiveAway() throws {
+        let dir = TempDir()
+        let staging = dir.dir("staging")
+        try "hello".write(toFile: (staging as NSString).appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
+        let zip = (dir.path as NSString).appendingPathComponent("download.zip")
+        try makeZip(in: staging, items: ["report.txt"], destination: zip)
+        try FileManager.default.removeItem(atPath: staging)
+
+        let action = makeAction(.uncompress, .object([:]))
+        let plan = try ActionExecutor.plan(action, path: zip)
+        #expect(plan.targetPath == (dir.path as NSString).appendingPathComponent("report.txt"))
+        #expect(plan.finalPath == plan.targetPath)
+
+        let applied = try ActionExecutor.execute(action, path: zip)
+
+        #expect(applied.newPath == (dir.path as NSString).appendingPathComponent("report.txt"))
+        #expect(try String(contentsOfFile: applied.newPath, encoding: .utf8) == "hello")
+        #expect(!FileManager.default.fileExists(atPath: zip))
+        #expect(applied.undo == .none)
+    }
+
+    @Test func uncompressZipWithMultipleRootItemsExtractsIntoWrapperFolder() throws {
+        let dir = TempDir()
+        let staging = dir.dir("staging")
+        try "a".write(toFile: (staging as NSString).appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        try "b".write(toFile: (staging as NSString).appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+        let zip = (dir.path as NSString).appendingPathComponent("bundle.zip")
+        try makeZip(in: staging, items: ["a.txt", "b.txt"], destination: zip)
+        try FileManager.default.removeItem(atPath: staging)
+
+        let applied = try ActionExecutor.execute(makeAction(.uncompress, .object([:])), path: zip)
+
+        #expect(applied.newPath == (dir.path as NSString).appendingPathComponent("bundle"))
+        #expect(FileManager.default.fileExists(atPath: (applied.newPath as NSString).appendingPathComponent("a.txt")))
+        #expect(FileManager.default.fileExists(atPath: (applied.newPath as NSString).appendingPathComponent("b.txt")))
+        #expect(!FileManager.default.fileExists(atPath: zip))
+    }
+
+    @Test func uncompressSkipConflictPlansAndDoesNotExtract() throws {
+        let dir = TempDir()
+        _ = dir.file("report.txt", contents: "existing")
+        let staging = dir.dir("staging")
+        try "new".write(toFile: (staging as NSString).appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
+        let zip = (dir.path as NSString).appendingPathComponent("download.zip")
+        try makeZip(in: staging, items: ["report.txt"], destination: zip)
+        try FileManager.default.removeItem(atPath: staging)
+
+        let action = makeAction(.uncompress, .object([ActionParam.onConflict: .string(MoveConflictResolution.skip.rawValue)]))
+        let plan = try ActionExecutor.plan(action, path: zip)
+
+        #expect(plan.status == .wouldSkip)
+        #expect(plan.isTerminal)
+        #expect(plan.finalPath == zip)
+        #expect(try String(contentsOfFile: (dir.path as NSString).appendingPathComponent("report.txt"), encoding: .utf8) == "existing")
+    }
+
+    @Test func revertMoveRestoresFileToOriginalLocation() throws {
+        let dir = TempDir()
+        let file = dir.file("note.txt", contents: "hello")
+        let dest = (dir.path as NSString).appendingPathComponent("Archive")
+        let moveAction = makeAction(.moveToFolder, .object(["destination": .string(dest)]))
+
+        let applied = try ActionExecutor.execute(moveAction, path: file)
+        #expect(!FileManager.default.fileExists(atPath: file))
+        #expect(FileManager.default.fileExists(atPath: applied.newPath))
+
+        try ActionExecutor.revert(applied.undo)
+        #expect(FileManager.default.fileExists(atPath: file))
+        #expect(!FileManager.default.fileExists(atPath: applied.newPath))
+    }
+
+    @Test func openApplicationPlanPassesFileByDefault() throws {
+        let dir = TempDir()
+        let file = dir.file("note.txt", contents: "hello")
+        let action = makeAction(.openApplication, .object([
+            ActionParam.applicationPath: .string("/Applications/TextEdit.app"),
+        ]))
+
+        let plan = try ActionExecutor.plan(action, path: file)
+
+        #expect(plan.description == "Open TextEdit with file")
+        #expect(plan.status == .wouldRun)
+        #expect(plan.finalPath == file)
+        #expect(!plan.isTerminal)
+        #expect(ActionExecutor.passesFileToApplication(action))
+    }
+
+    @Test func openApplicationPlanCanDisablePassingMatchedFile() throws {
+        let dir = TempDir()
+        let file = dir.file("note.txt", contents: "hello")
+        let action = makeAction(.openApplication, .object([
+            ActionParam.applicationPath: .string("/Applications/TextEdit.app"),
+            ActionParam.passFileToApplication: .bool(false),
+        ]))
+
+        let plan = try ActionExecutor.plan(action, path: file)
+
+        #expect(plan.description == "Open TextEdit")
+        #expect(plan.status == .wouldRun)
+        #expect(plan.finalPath == file)
+        #expect(!plan.isTerminal)
+        #expect(!ActionExecutor.passesFileToApplication(action))
+    }
+
+    @Test func openApplicationPlanSkipsEmptyApp() throws {
+        let dir = TempDir()
+        let file = dir.file("note.txt", contents: "hello")
+        let action = makeAction(.openApplication, .object([:]))
+
+        let plan = try ActionExecutor.plan(action, path: file)
+
+        #expect(plan.description == "Open application")
+        #expect(plan.status == .wouldSkip)
+        #expect(plan.finalPath == file)
+    }
+
+    // MARK: - Clean file name
+
+    @Test func cleanFileNameStripsDiacriticsAndSpecialChars() {
+        #expect(ActionExecutor.cleanFileName("café") == "cafe")
+        #expect(ActionExecutor.cleanFileName("français") == "francais")
+        #expect(ActionExecutor.cleanFileName("über cool") == "uber-cool")
+        #expect(ActionExecutor.cleanFileName("naïve_file") == "naive-file")
+        #expect(ActionExecutor.cleanFileName("München.txt") == "munchen.txt")
+    }
+
+    @Test func cleanFileNameConvertsSpacesAndUnderscoresToHyphens() {
+        #expect(ActionExecutor.cleanFileName("hello world") == "hello-world")
+        #expect(ActionExecutor.cleanFileName("hello_world") == "hello-world")
+        #expect(ActionExecutor.cleanFileName("a b_c d") == "a-b-c-d")
+    }
+
+    @Test func cleanFileNameSplitsCamelCase() {
+        #expect(ActionExecutor.cleanFileName("myFile") == "my-file")
+        #expect(ActionExecutor.cleanFileName("PDFReport") == "pdfreport")
+        #expect(ActionExecutor.cleanFileName("helloWorldAgain") == "hello-world-again")
+        #expect(ActionExecutor.cleanFileName("my2Files") == "my2-files")
+    }
+
+    @Test func cleanFileNameRemovesSpecialCharacters() {
+        #expect(ActionExecutor.cleanFileName("hello's world") == "hellos-world")
+        #expect(ActionExecutor.cleanFileName("price (2024).txt") == "price-2024.txt")
+        #expect(ActionExecutor.cleanFileName("file@name!") == "filename")
+        #expect(ActionExecutor.cleanFileName("100% done") == "100-done")
+    }
+
+    @Test func cleanFileNameCollapsesMultipleHyphens() {
+        #expect(ActionExecutor.cleanFileName("hello   world") == "hello-world")
+        #expect(ActionExecutor.cleanFileName("hello___world") == "hello-world")
+        #expect(ActionExecutor.cleanFileName("hello - world") == "hello-world")
+    }
+
+    @Test func cleanFileNameStripsLeadingAndTrailingHyphens() {
+        #expect(ActionExecutor.cleanFileName(" hello ") == "hello")
+        #expect(ActionExecutor.cleanFileName("_hello_") == "hello")
+        #expect(ActionExecutor.cleanFileName("-hello-") == "hello")
+    }
+
+    @Test func cleanFileNamePreservesExtension() {
+        #expect(ActionExecutor.cleanFileName("Hello World.txt") == "hello-world.txt")
+        #expect(ActionExecutor.cleanFileName("Café Report.PDF") == "cafe-report.PDF")
+        #expect(ActionExecutor.cleanFileName("myFile.txt") == "my-file.txt")
+    }
+
+    @Test func cleanFileNameFallsBackToOriginalWhenResultIsEmpty() {
+        #expect(ActionExecutor.cleanFileName("___") == "___")
+        #expect(ActionExecutor.cleanFileName("!@#") == "!@#")
+    }
+
+    @Test func cleanFileNameHandlesComplexMixedInput() {
+        #expect(ActionExecutor.cleanFileName("L'Été 2024 (Report).txt") == "lete-2024-report.txt")
+        #expect(ActionExecutor.cleanFileName("Déjà_Vu - Copy (2).txt") == "deja-vu-copy-2.txt")
+        #expect(ActionExecutor.cleanFileName("MyCafé_Report (final)") == "my-cafe-report-final")
+    }
+
+    @Test func cleanFileNameTransliteratesGermanSharpS() {
+        #expect(ActionExecutor.cleanFileName("straße") == "strasse")
+        #expect(ActionExecutor.cleanFileName("GROß") == "gross")
+    }
+
+    @Test func cleanFileNameTransliteratesCyrillic() {
+        #expect(ActionExecutor.cleanFileName("Привет") == "privet")
+        #expect(ActionExecutor.cleanFileName("Москва") == "moskva")
+    }
+
+    @Test func cleanFileNameTransliteratesChinese() {
+        #expect(ActionExecutor.cleanFileName("中文文件") == "zhong-wen-wen-jian")
+    }
+
+    @Test func cleanFileNameTransliteratesArabic() {
+        #expect(ActionExecutor.cleanFileName("مرحبا بالعالم") == "mrhba-balalm")
+    }
+
+    @Test func cleanFileNameTransliteratesMixedScripts() {
+        #expect(ActionExecutor.cleanFileName("Café München 中文.txt") == "cafe-munchen-zhong-wen.txt")
+    }
+
+    @Test func cleanFileNameWithOptionRenamesFileCorrectly() throws {
+        let dir = TempDir()
+        let file = dir.file("Café Report.txt", contents: "hello")
+        let rename = makeAction(.rename, .object([
+            "pattern": .string("{name}"),
+            "clean_file_name": .bool(true),
+        ]))
+
+        _ = try ActionExecutor.execute(rename, path: file)
+
+        #expect(!FileManager.default.fileExists(atPath: file))
+        #expect(FileManager.default.fileExists(atPath: (dir.path as NSString).appendingPathComponent("cafe-report.txt")))
+    }
+
+    // MARK: - Rename
+
+    @Test func revertRenameRestoresOriginalName() throws {
+        let dir = TempDir()
+        let file = dir.file("report.txt", contents: "hi")
+        let rename = makeAction(.rename, .object(["pattern": .string("renamed")]))
+
+        let applied = try ActionExecutor.execute(rename, path: file)
+        #expect(!FileManager.default.fileExists(atPath: file))
+
+        try ActionExecutor.revert(applied.undo)
+        #expect(FileManager.default.fileExists(atPath: file))
+    }
+
+    /// Copy is intentionally not reversible (matches Revert, which
+    /// doesn't cover Copy either): a copy is an independent file once
+    /// created, not something to roll back.
+    @Test func copyIsNotReversibleButStillTracksWhereItLanded() throws {
+        let dir = TempDir()
+        let file = dir.file("data.bin", contents: "x")
+        let dest = (dir.path as NSString).appendingPathComponent("Backup")
+        let copyAction = makeAction(.copyToFolder, .object(["destination": .string(dest)]))
+
+        let applied = try ActionExecutor.execute(copyAction, path: file)
+        #expect(FileManager.default.fileExists(atPath: file))
+        let copiedPath = (dest as NSString).appendingPathComponent("data.bin")
+        #expect(FileManager.default.fileExists(atPath: copiedPath))
+
+        #expect(applied.undo.isReversible == false)
+        #expect(applied.copiedPath == copiedPath)
+    }
+
+    /// Copies recorded before this behavior changed are still revertible —
+    /// existing history entries keep working exactly as they did when saved.
+    @Test func revertStillSupportsCopyEntriesSavedBeforeCopyBecameIrreversible() throws {
+        let dir = TempDir()
+        let file = dir.file("data.bin", contents: "x")
+        let copiedPath = (dir.path as NSString).appendingPathComponent("data (copy).bin")
+        try FileManager.default.copyItem(atPath: file, toPath: copiedPath)
+
+        try ActionExecutor.revert(.copy(copy: copiedPath))
+
+        #expect(FileManager.default.fileExists(atPath: file))
+        #expect(!FileManager.default.fileExists(atPath: copiedPath))
+    }
+
+    @Test func revertAddTagOnlyRemovesNewlyAddedTags() throws {
+        let dir = TempDir()
+        let file = dir.file("doc.txt", contents: "x")
+        _ = try ActionExecutor.execute(makeAction(.addTag, .object(["tags": .stringArray(["Existing"])])), path: file)
+
+        let add = makeAction(.addTag, .object(["tags": .stringArray(["Existing", "Fresh"])]))
+        let applied = try ActionExecutor.execute(add, path: file)
+        #expect(FinderTags.read(file) == ["Existing", "Fresh"])
+
+        try ActionExecutor.revert(applied.undo)
+        #expect(FinderTags.read(file) == ["Existing"])
+    }
+
+    @Test func revertRemoveTagRestoresRemovedTags() throws {
+        let dir = TempDir()
+        let file = dir.file("doc.txt", contents: "x")
+        _ = try ActionExecutor.execute(makeAction(.addTag, .object(["tags": .stringArray(["Keep"])])), path: file)
+
+        let remove = makeAction(.removeTag, .object(["tags": .stringArray(["Keep"])]))
+        let applied = try ActionExecutor.execute(remove, path: file)
+        #expect(FinderTags.read(file).isEmpty)
+
+        try ActionExecutor.revert(applied.undo)
+        #expect(FinderTags.read(file) == ["Keep"])
+    }
+
+    @Test func revertColorLabelRestoresPreviousColor() throws {
+        let dir = TempDir()
+        let file = dir.file("image.png", contents: "png")
+        _ = try ActionExecutor.execute(makeAction(.setColorLabel, .object(["color": .string("Red")])), path: file)
+
+        let setBlue = makeAction(.setColorLabel, .object(["color": .string("Blue")]))
+        let applied = try ActionExecutor.execute(setBlue, path: file)
+        #expect(FinderTags.read(file) == ["Blue\n4"])
+
+        try ActionExecutor.revert(applied.undo)
+        #expect(FinderTags.read(file) == ["Red\n6"])
+    }
+
+    @Test func revertRunScriptIsRejectedAsIrreversible() throws {
+        let dir = TempDir()
+        let file = dir.file("x.txt", contents: "x")
+        let script = makeAction(.runScript, .object(["script": .string("true")]))
+        let applied = try ActionExecutor.execute(script, path: file)
+        #expect(!applied.undo.isReversible)
+        #expect(throws: (any Error).self) {
+            try ActionExecutor.revert(applied.undo)
+        }
+    }
+
+    @Test func runScriptRunsEveryLineOfAMultilineScript() throws {
+        let dir = TempDir()
+        let file = dir.file("x.txt", contents: "x")
+        let script = makeAction(.runScript, .object(["script": .string("""
+        out="$FOREL_FILE.out"
+        echo first > "$out"
+        if [ -f "$FOREL_FILE" ]; then
+            echo second >> "$out"
+        fi
+        """)]))
+        _ = try ActionExecutor.execute(script, path: file)
+        #expect(try String(contentsOfFile: file + ".out", encoding: .utf8) == "first\nsecond\n")
+    }
+
+    @Test func runShortcutPreviewUsesShortcutNameAndSkipsWhenMissing() throws {
+        let dir = TempDir()
+        let file = dir.file("shortcut-input.txt", contents: "x")
+
+        let named = makeAction(.runShortcut, .object(["shortcut_name": .string("Archive Invoice")]))
+        let namedPlan = try ActionExecutor.plan(named, path: file)
+        #expect(namedPlan.description == "Run shortcut: Archive Invoice")
+        #expect(namedPlan.status == .wouldRun)
+        #expect(namedPlan.finalPath == file)
+        #expect(!namedPlan.isTerminal)
+
+        let missing = makeAction(.runShortcut, .object([:]))
+        let missingPlan = try ActionExecutor.plan(missing, path: file)
+        #expect(missingPlan.description == "Run shortcut")
+        #expect(missingPlan.status == .wouldSkip)
+    }
+
+    @Test func runShortcutInputModeDefaultsFallsBackAndAffectsPreview() throws {
+        let dir = TempDir()
+        let file = dir.file("shortcut-input.txt", contents: "x")
+
+        let defaultAction = makeAction(.runShortcut, .object(["shortcut_name": .string("Archive Invoice")]))
+        #expect(ActionExecutor.shortcutInputMode(defaultAction) == .matchedFile)
+
+        let oldJsonAction = makeAction(.runShortcut, .object([
+            "shortcut_name": .string("Archive Invoice"),
+            "shortcut_input_mode": .string("json_context"),
+        ]))
+        #expect(ActionExecutor.shortcutInputMode(oldJsonAction) == .matchedFile)
+        #expect(try ActionExecutor.preview(oldJsonAction, path: file) == "Run shortcut: Archive Invoice")
+
+        let noneAction = makeAction(.runShortcut, .object([
+            "shortcut_name": .string("Archive Invoice"),
+            "shortcut_input_mode": .string("none"),
+        ]))
+        #expect(try ActionExecutor.preview(noneAction, path: file) == "Run shortcut: Archive Invoice with no input")
+    }
+
+    @Test func shortcutListParsingTrimsEmptyAndDuplicateNames() {
+        let output = "\nArchive Invoice\n  Resize Images  \nArchive Invoice\n\n"
+        #expect(ShortcutCatalog.parseShortcutList(output) == ["Archive Invoice", "Resize Images"])
+    }
+
+    @Test func shortcutRunnerBuildsArgumentsForInputModes() {
+        #expect(ShortcutRunner.arguments(name: "Archive", input: .file("/tmp/a.txt")) == [
+            "run", "Archive", "--input-path", "/tmp/a.txt",
+        ])
+        #expect(ShortcutRunner.arguments(name: "Archive", input: .none) == ["run", "Archive"])
+    }
+}
+
+func makeZip(in directory: String, items: [String], destination: String) throws {
+    let zip = Process()
+    zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+    zip.currentDirectoryURL = URL(fileURLWithPath: directory)
+    zip.arguments = ["-r", "-q", destination] + items
+    zip.standardError = FileHandle.nullDevice
+    try zip.run()
+    zip.waitUntilExit()
+    if zip.terminationStatus != 0 {
+        throw ActionError("zip exited with status \(zip.terminationStatus)")
+    }
+}

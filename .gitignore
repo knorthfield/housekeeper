@@ -1,0 +1,22 @@
+# SwiftPM
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+*.xcodeproj
+*.xcworkspace
+
+# Local editor state
+.DS_Store
+.vscode/*
+!.vscode/launch.json
+
+# Local workspace leftovers
+dist/
+node_modules/
+.pnpm-store/
+.vite/
+.vscode
+plans/
+
+.claude/worktrees

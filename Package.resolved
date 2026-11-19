@@ -1,0 +1,23 @@
+{
+  "originHash" : "4635c24d818c123c67a5775b9ea03e9669a5cb0303be43e84ec0e6ec81144137",
+  "pins" : [
+    {
+      "identity" : "licensing",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/lab421/licensing.git",
+      "state" : {
+        "revision" : "1569b2038595862084a466d8dea806b360642608"
+      }
+    },
+    {
+      "identity" : "zipfoundation",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/weichsel/ZIPFoundation.git",
+      "state" : {
+        "revision" : "22787ffb59de99e5dc1fbfe80b19c97a904ad48d",
+        "version" : "0.9.20"
+      }
+    }
+  ],
+  "version" : 3
+}
