@@ -90,12 +90,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if model == nil { model = Self.launchContext }
 
-        // Running as a bare dev executable (no packaged .app/Info.plist) shows
-        // a generic Dock icon otherwise; set it explicitly from the bundled artwork.
-        if let appIcon = AppIcons.appIcon {
-            NSApp.applicationIconImage = appIcon
-        }
-
         // The status item doesn't exist yet, so the only window there can be
         // at this point is the main one.
         if mainWindow == nil, let window = NSApp.windows.first {

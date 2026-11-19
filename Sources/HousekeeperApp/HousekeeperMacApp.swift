@@ -46,17 +46,12 @@ struct HousekeeperMacApp: App {
             SidebarCommands()
             CommandGroup(replacing: .appInfo) {
                 Button("About Housekeeper") {
-                    var options: [NSApplication.AboutPanelOptionKey: Any] = [
+                    let options: [NSApplication.AboutPanelOptionKey: Any] = [
                         .applicationName: AppInfo.name,
                         .applicationVersion: AppInfo.version,
                         .version: "Build \(AppInfo.build)",
                         .credits: Self.aboutCredits,
                     ]
-
-                    if let icon = Bundle.module.url(forResource: "AppIcon", withExtension: "png")
-                        .flatMap({ NSImage(contentsOf: $0) }) {
-                        options[.applicationIcon] = icon
-                    }
 
                     NSApplication.shared.orderFrontStandardAboutPanel(options: options)
                 }

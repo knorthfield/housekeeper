@@ -16,8 +16,9 @@
 
 import AppKit
 
-/// The app icon image, for the About panel and the brand mark
-/// (`Resources/AppIcon.png`, exported from `AppIcon.icon`).
+/// The app icon image for the in-app brand mark (`Resources/AppIcon.png`,
+/// exported from `AppIcon.icon`). It has no margin, so do not use it as the
+/// Dock or About panel icon; the bundle's compiled icon does that job.
 @MainActor
 enum AppIcons {
     static let appIcon: NSImage? = loadImage("AppIcon")
