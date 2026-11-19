@@ -7,10 +7,10 @@ Usage:
   ./build.sh [command] [flavor] [arch] [version] [--sign] [--notarize]
 
 Commands:
-  dev       Build in debug mode and run ForelApp locally
+  dev       Build in debug mode and run HousekeeperApp locally
   build     Build the Swift package in release mode
   test      Run the Swift test suite
-  package   Build and package a Forel.app + DMG
+  package   Build and package a Housekeeper.app + DMG
   release   Alias for: build + package
 
 Arguments:
@@ -40,13 +40,13 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$script_dir"
 dist_dir="$repo_root/dist/release"
 temp_root="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
-bundle_root="$temp_root/Forel.app"
-dev_bundle="$temp_root/Forel-dev.app"
-staging_root="$temp_root/Forel-dmg"
-icon_source="$repo_root/Sources/ForelApp/Resources/AppIcon.png"
-iconset_dir="$temp_root/Forel.iconset"
-icns_path="$repo_root/dist/Forel.icns"
-entitlements_path="$repo_root/Forel.entitlements"
+bundle_root="$temp_root/Housekeeper.app"
+dev_bundle="$temp_root/Housekeeper-dev.app"
+staging_root="$temp_root/Housekeeper-dmg"
+icon_source="$repo_root/Sources/HousekeeperApp/Resources/AppIcon.png"
+iconset_dir="$temp_root/Housekeeper.iconset"
+icns_path="$repo_root/dist/Housekeeper.icns"
+entitlements_path="$repo_root/Housekeeper.entitlements"
 code_sign_identity="${CODE_SIGN_IDENTITY:--}"
 notary_work=""
 
@@ -78,12 +78,12 @@ assemble_app_bundle() {
   local products_dir="$1" dest_app="$2"
   local binary_path resource_bundle contents_dir macos_dir resources_dir
 
-  binary_path="$products_dir/ForelApp"
+  binary_path="$products_dir/HousekeeperApp"
   if [[ ! -f "$binary_path" ]]; then
-    echo "Could not find ForelApp in $products_dir after swift build" >&2
+    echo "Could not find HousekeeperApp in $products_dir after swift build" >&2
     exit 1
   fi
-  resource_bundle="$products_dir/Forel_ForelApp.bundle"
+  resource_bundle="$products_dir/Housekeeper_HousekeeperApp.bundle"
 
   contents_dir="$dest_app/Contents"
   macos_dir="$contents_dir/MacOS"
@@ -91,8 +91,8 @@ assemble_app_bundle() {
   rm -rf "$dest_app"
   mkdir -p "$macos_dir" "$resources_dir"
 
-  cp "$binary_path" "$macos_dir/ForelApp"
-  chmod +x "$macos_dir/ForelApp"
+  cp "$binary_path" "$macos_dir/HousekeeperApp"
+  chmod +x "$macos_dir/HousekeeperApp"
   if [[ -d "$resource_bundle" ]]; then
     cp -R "$resource_bundle" "$resources_dir/"
   fi
@@ -137,7 +137,7 @@ verify_design_sdk() {
   local binary="$1" mode="${2:-fail}" recorded
   while read -r recorded; do
     if (( ${recorded%%.*} < minimum_design_sdk_major )); then
-      echo "ForelApp records macOS SDK $recorded. macOS only applies its current design to apps built with SDK $minimum_design_sdk_major or later; build with Xcode $minimum_design_sdk_major or later." >&2
+      echo "HousekeeperApp records macOS SDK $recorded. macOS only applies its current design to apps built with SDK $minimum_design_sdk_major or later; build with Xcode $minimum_design_sdk_major or later." >&2
       if [[ "$mode" != "warn" ]]; then
         exit 1
       fi
@@ -160,15 +160,15 @@ write_info_plist() {
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleDisplayName</key>
-  <string>Forel</string>
+  <string>Housekeeper</string>
   <key>CFBundleExecutable</key>
-  <string>ForelApp</string>
+  <string>HousekeeperApp</string>
   <key>CFBundleIdentifier</key>
-  <string>com.lab421.forel</string>
+  <string>com.krisnorthfield.housekeeper</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Forel</string>
+  <string>Housekeeper</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -176,7 +176,7 @@ write_info_plist() {
   <key>CFBundleVersion</key>
   <string>${version_number}</string>
   <key>NSHumanReadableCopyright</key>
-  <string>Copyright © 2026 Lab421</string>
+  <string>Copyright © 2026 Lab421 and Kris Northfield</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSUIElement</key>
@@ -184,9 +184,9 @@ write_info_plist() {
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSPhotoLibraryUsageDescription</key>
-  <string>Forel can import images and videos into your Photos library as part of automated rules.</string>
+  <string>Housekeeper can import images and videos into your Photos library as part of automated rules.</string>
   <key>NSAppleEventsUsageDescription</key>
-  <string>Forel uses automation to add files to the Music and TV libraries as part of automated rules.</string>
+  <string>Housekeeper uses automation to add files to the Music and TV libraries as part of automated rules.</string>
 ${extra_keys}
 </dict>
 </plist>
@@ -264,13 +264,13 @@ fi
 
 case "$flavor" in
   development)
-    compilation_condition="FOREL_BUILD_DEVELOPMENT"
+    compilation_condition="HOUSEKEEPER_BUILD_DEVELOPMENT"
     ;;
   ad-hoc)
-    compilation_condition="FOREL_BUILD_AD_HOC"
+    compilation_condition="HOUSEKEEPER_BUILD_AD_HOC"
     ;;
   app-store)
-    compilation_condition="FOREL_BUILD_APP_STORE"
+    compilation_condition="HOUSEKEEPER_BUILD_APP_STORE"
     ;;
   *)
     echo "Unsupported build flavor: $flavor" >&2
@@ -346,7 +346,7 @@ if [[ "$notarize_requested" == true ]]; then
     echo "Notarization requires NOTARY_API_KEY_P8, NOTARY_KEY_ID, and NOTARY_ISSUER_ID" >&2
     exit 1
   fi
-  notary_work="$(mktemp -d "$temp_root/Forel-notary.XXXXXX")"
+  notary_work="$(mktemp -d "$temp_root/Housekeeper-notary.XXXXXX")"
   printf '%s' "$NOTARY_API_KEY_P8" | base64 --decode > "$notary_work/AuthKey.p8"
   chmod 600 "$notary_work/AuthKey.p8"
 fi
@@ -358,7 +358,7 @@ case "$command" in
     # `swift run` binary. macOS attributes TCC checks (Photos, Automation) to
     # the bundle identity declared in Info.plist; an unbundled binary has none,
     # so those checks get misattributed to whatever launched it (e.g. the
-    # terminal you're using) instead of Forel, making them unreliable to test.
+    # terminal you're using) instead of Housekeeper, making them unreliable to test.
     swift build "${swift_flags[@]}"
 
     build_products_dir="$(swift build "${swift_flags[@]}" --show-bin-path)"
@@ -367,10 +367,10 @@ case "$command" in
     macos_dir="$contents_dir/MacOS"
     # Dev builds only: give the local app the same system design as the
     # release, whatever the local SwiftPM records.
-    record_real_sdk_version "$macos_dir/ForelApp"
-    verify_design_sdk "$macos_dir/ForelApp" warn
+    record_real_sdk_version "$macos_dir/HousekeeperApp"
+    verify_design_sdk "$macos_dir/HousekeeperApp" warn
 
-    write_info_plist "$contents_dir" "0.0.0-dev" '  <key>ForelBuildFlavor</key>
+    write_info_plist "$contents_dir" "0.0.0-dev" '  <key>HousekeeperBuildFlavor</key>
   <string>development</string>'
 
     # Ad-hoc sign so TCC has a stable bundle identity to attach grants to.
@@ -378,7 +378,7 @@ case "$command" in
     # Exec the binary inside the bundle (not `open`) so stdout/stderr stay
     # attached to this terminal while macOS still reads the adjacent
     # Info.plist for the bundle identity TCC checks need.
-    exec "$macos_dir/ForelApp"
+    exec "$macos_dir/HousekeeperApp"
     ;;
 
   build)
@@ -437,19 +437,19 @@ case "$command" in
     contents_dir="$bundle_root/Contents"
 
     if [[ "$arch" == "universal" ]]; then
-      lipo "$bundle_root/Contents/MacOS/ForelApp" -verify_arch arm64
-      lipo "$bundle_root/Contents/MacOS/ForelApp" -verify_arch x86_64
+      lipo "$bundle_root/Contents/MacOS/HousekeeperApp" -verify_arch arm64
+      lipo "$bundle_root/Contents/MacOS/HousekeeperApp" -verify_arch x86_64
     fi
 
     write_info_plist "$contents_dir" "$version_number" '  <key>CFBundleIconFile</key>
-  <string>Forel</string>
+  <string>Housekeeper</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.productivity</string>
-  <key>ForelBuildFlavor</key>
+  <key>HousekeeperBuildFlavor</key>
   <string>'"$flavor"'</string>'
 
     if [[ -f "$icns_path" ]]; then
-      cp "$icns_path" "$bundle_root/Contents/Resources/Forel.icns"
+      cp "$icns_path" "$bundle_root/Contents/Resources/Housekeeper.icns"
     fi
 
     if [[ "$sign_requested" == true ]]; then
@@ -472,27 +472,27 @@ case "$command" in
     fi
 
     mkdir -p "$dist_dir"
-    rm -rf "$dist_dir/Forel.app"
-    /usr/bin/ditto --noextattr --noqtn "$bundle_root" "$dist_dir/Forel.app"
+    rm -rf "$dist_dir/Housekeeper.app"
+    /usr/bin/ditto --noextattr --noqtn "$bundle_root" "$dist_dir/Housekeeper.app"
 
     rm -rf "$staging_root"
     mkdir -p "$staging_root"
-    /usr/bin/ditto --noextattr --noqtn "$bundle_root" "$staging_root/Forel.app"
+    /usr/bin/ditto --noextattr --noqtn "$bundle_root" "$staging_root/Housekeeper.app"
     if [[ "$sign_requested" == true ]]; then
-      codesign --verify --deep --strict --verbose=2 "$staging_root/Forel.app"
+      codesign --verify --deep --strict --verbose=2 "$staging_root/Housekeeper.app"
       if [[ "$notarize_requested" == true ]]; then
-        xcrun stapler validate "$staging_root/Forel.app"
+        xcrun stapler validate "$staging_root/Housekeeper.app"
       fi
     fi
     ln -s /Applications "$staging_root/Applications"
 
     if [[ "$arch" == "universal" ]]; then
-      dmg_path="$dist_dir/Forel-${version}.dmg"
+      dmg_path="$dist_dir/Housekeeper-${version}.dmg"
     else
-      dmg_path="$dist_dir/Forel-${version}-${dmg_suffix}.dmg"
+      dmg_path="$dist_dir/Housekeeper-${version}-${dmg_suffix}.dmg"
     fi
     hdiutil create \
-      -volname "Forel" \
+      -volname "Housekeeper" \
       -srcfolder "$staging_root" \
       -ov \
       -format UDZO \

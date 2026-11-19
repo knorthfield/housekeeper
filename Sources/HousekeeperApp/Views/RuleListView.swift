@@ -1,0 +1,883 @@
+// Housekeeper - A native macOS file-automation app, a fork of Forel
+// Copyright (C) 2026  Lab421
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import SwiftUI
+import AppKit
+import HousekeeperCore
+
+struct RuleListView: View {
+    @EnvironmentObject var model: AppModel
+    @State private var selectedRuleIDs: Set<String> = []
+    @State private var copyRequest: RuleCopyRequest?
+
+    private var selectedFolder: WatchedFolder? {
+        model.folders.first { $0.id == model.selectedFolderId }
+    }
+
+    var body: some View {
+        content
+            .sheet(item: $model.previewResult) { result in
+                PreviewSheet(result: result) { model.previewResult = nil }
+            }
+            .sheet(item: $copyRequest) { request in
+                CopyRulesSheet(
+                    ruleCount: request.ruleIDs.count,
+                    sourceFolderID: request.sourceFolderID,
+                    folders: model.folders,
+                    onCopy: { destination in
+                        try model.copyRules(request.ruleIDs, fromFolderID: request.sourceFolderID, toFolderID: destination)
+                        copyRequest = nil
+                    },
+                    onCancel: { copyRequest = nil }
+                )
+            }
+            .onChange(of: model.selectedFolderId) { _, _ in selectedRuleIDs.removeAll() }
+            .onChange(of: model.rules.map(\.id)) { _, ids in selectedRuleIDs.formIntersection(ids) }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            header
+            if model.paused, model.selectedFolderId != nil {
+                pausedBanner
+            }
+            if !model.rules.isEmpty {
+                actionBar
+            }
+            if !selectedRuleIDs.isEmpty {
+                HStack {
+                    Text("\(selectedRuleIDs.count) rule\(selectedRuleIDs.count == 1 ? "" : "s") selected")
+                        .font(.caption)
+                        .foregroundStyle(HousekeeperTheme.secondaryText)
+                    Button("Copy rules to folder…") { requestCopy(selectedRuleIDs) }
+                        .buttonStyle(SecondaryButtonStyle())
+                    Button("Deselect all") { selectedRuleIDs.removeAll() }
+                        .buttonStyle(SecondaryButtonStyle())
+                    Spacer()
+                }
+            }
+
+            if let runNowMessage = model.runNowMessageForSelectedFolder {
+                runNowBanner(runNowMessage)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            if model.rules.isEmpty {
+                VStack {
+                    Spacer(minLength: 0)
+                    emptyState
+                    Spacer(minLength: 0)
+                }
+            } else {
+                List(selection: $selectedRuleIDs) {
+                    ForEach(Array(model.rules.enumerated()), id: \.element.id) { index, rule in
+                        VStack(alignment: .leading, spacing: 4) {
+                            if !rule.isSupported {
+                                Label("Created with a newer version of Housekeeper — not running. Update Housekeeper to run or edit it.", systemImage: "exclamationmark.triangle")
+                                    .font(.caption)
+                                    .foregroundStyle(HousekeeperTheme.secondaryText)
+                            }
+                            RuleCard(
+                            rule: rule,
+                            order: index + 1,
+                            isExpanded: model.isRuleExpanded(rule),
+                            isSelected: selectedRuleIDs.contains(rule.id),
+                            onToggleExpanded: { model.toggleRuleExpanded(rule) },
+                            onEdit: { model.editingRule = rule },
+                            onCopy: { requestCopy([rule.id]) }
+                            )
+                        }
+                            .tag(rule.id)
+                            .background(RuleListSelectionAppearance())
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                    }
+                    .onMove(perform: moveRules)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .scrollIndicators(.never)
+                .contextMenu(forSelectionType: String.self) { ids in
+                    Button("Copy rules to folder…") { requestCopy(ids) }
+                        .disabled(ids.isEmpty)
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: model.runNowMessageForSelectedFolder)
+        .padding(16)
+        .frame(minWidth: 460)
+        .background(HousekeeperTheme.background)
+    }
+
+    private func requestCopy(_ ruleIDs: Set<String>) {
+        guard let sourceFolderID = model.selectedFolderId, !ruleIDs.isEmpty else { return }
+        copyRequest = RuleCopyRequest(sourceFolderID: sourceFolderID, ruleIDs: ruleIDs)
+    }
+
+    private func moveRules(from source: IndexSet, to destination: Int) {
+        var ids = model.rules.map(\.id)
+        ids.move(fromOffsets: source, toOffset: destination)
+        model.reorderRules(ids)
+    }
+
+    @ViewBuilder
+    private func runNowBanner(_ message: AppModel.RunNowMessage) -> some View {
+        let tint = message.hasFailures ? Color.orange : HousekeeperTheme.success
+        HStack(spacing: 6) {
+            Image(systemName: message.hasFailures ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+            Text(message.text)
+            if message.hasFailures {
+                Button {
+                    model.dismissRunNowMessage()
+                    model.showActivity(forFolder: message.folderId)
+                } label: {
+                    Text("Show in Activity").underline()
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 4)
+                Button {
+                    model.dismissRunNowMessage()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .help("Dismiss")
+            }
+        }
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(tint)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Capsule().fill(tint.opacity(0.14)))
+    }
+
+    private var header: some View {
+        ViewHeader(
+            title: selectedFolder.map { ($0.path as NSString).lastPathComponent } ?? "Rules",
+            subtitle: model.selectedFolderId == nil
+                ? "Select a folder to manage its rules"
+                : "\(model.rules.count) rules · drag to reorder",
+            systemImage: selectedFolder == nil ? nil : "folder.fill"
+        ) {
+            Button {
+                model.showActivity()
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
+            }
+            .buttonStyle(IconButtonStyle())
+            .help("Activity history")
+        }
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                guard let folderId = model.selectedFolderId else { return }
+                model.editingRule = Rule(folderId: folderId, name: "New Rule")
+            } label: {
+                Label("New Rule", systemImage: "plus")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(!model.canAddRule)
+            .opacity(model.canAddRule ? 1 : 0.45)
+
+            Button {
+                model.runNow()
+            } label: {
+                if model.isRunningNow {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Running…")
+                    }
+                } else {
+                    Label("Run Now", systemImage: "play.fill")
+                }
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(model.isRunningNow)
+
+            Button {
+                model.preview()
+            } label: {
+                if model.isPreviewing {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Scanning…")
+                    }
+                } else {
+                    Label("Preview (Dry Run)", systemImage: "eye")
+                }
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(model.isPreviewing)
+
+            Spacer()
+        }
+    }
+
+    private var pausedBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "pause.circle.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Automatic watching is paused")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(HousekeeperTheme.primaryText)
+                Text("Rules only run when you choose Run Now.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(HousekeeperTheme.secondaryText)
+            }
+
+            Spacer(minLength: 8)
+
+            Button("Resume Watching", action: model.togglePaused)
+                .buttonStyle(SecondaryButtonStyle())
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.orange.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.30))
+        )
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            if model.selectedFolderId == nil {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 28))
+                    .foregroundStyle(HousekeeperTheme.secondaryText)
+                Text("No folder selected")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(HousekeeperTheme.primaryText)
+                Text("Pick a folder on the left to see its rules.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HousekeeperTheme.secondaryText)
+                    .multilineTextAlignment(.center)
+            } else {
+                Image(systemName: "list.bullet.rectangle")
+                    .font(.system(size: 28))
+                    .foregroundStyle(HousekeeperTheme.secondaryText)
+                Text("No rules yet")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(HousekeeperTheme.primaryText)
+                Text("Create a rule to automate files in this folder.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HousekeeperTheme.secondaryText)
+                    .multilineTextAlignment(.center)
+                Button {
+                    guard let folderId = model.selectedFolderId else { return }
+                    model.editingRule = Rule(folderId: folderId, name: "New Rule")
+                } label: {
+                    Label("New Rule", systemImage: "plus")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .padding(.top, 8)
+                .disabled(!model.canAddRule)
+                .opacity(model.canAddRule ? 1 : 0.45)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 50)
+    }
+}
+
+private struct RuleCard: View {
+    @EnvironmentObject var model: AppModel
+    let rule: Rule
+    let order: Int
+    let isExpanded: Bool
+    let isSelected: Bool
+    let onToggleExpanded: () -> Void
+    let onEdit: () -> Void
+    let onCopy: () -> Void
+    @State private var confirmsDelete = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HousekeeperTheme.secondaryText.opacity(0.6))
+                    .frame(width: 18, height: 24)
+                    .pointingHandCursor()
+
+                Button(action: onToggleExpanded) {
+                    HStack(spacing: 8) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(HousekeeperTheme.secondaryText.opacity(0.75))
+                            .frame(width: 12)
+
+                        ZStack {
+                            Circle().fill(HousekeeperTheme.accent.opacity(0.16))
+                            Text("\(order)")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(HousekeeperTheme.accent)
+                        }
+                        .frame(width: 22, height: 22)
+                    }
+                    .frame(width: 54, height: 30)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointingHandCursor()
+
+                Toggle("", isOn: enabledBinding)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(HousekeeperTheme.accent)
+                    .controlSize(.small)
+
+                Button(action: onToggleExpanded) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(rule.name)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(HousekeeperTheme.primaryText)
+                        HStack(spacing: 6) {
+                            metaPill(icon: "line.3.horizontal.decrease.circle", text: "\(rule.conditions.count)")
+                            metaPill(icon: "bolt.fill", text: "\(rule.actions.count)")
+                            if let stats = model.runStats(for: rule) {
+                                let totalRuns = stats.successCount + stats.failedCount
+                                if totalRuns > 0 {
+                                    Text("\(totalRuns) run\(totalRuns == 1 ? "" : "s") (30d)")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(HousekeeperTheme.secondaryText)
+                                        .help("Last 30 days: \(stats.successCount) successful, \(stats.failedCount) failed")
+                                }
+                            }
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .pointingHandCursor()
+
+                Spacer(minLength: 8)
+
+                Button(action: onCopy) {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(IconButtonStyle())
+                .disabled(!rule.isSupported)
+
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(IconButtonStyle())
+                .disabled(!rule.isSupported)
+
+                Button(role: .destructive) {
+                    confirmsDelete = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(IconButtonStyle(role: .destructive))
+                .help("Delete this rule…")
+                .accessibilityLabel("Delete rule")
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+
+            if isExpanded {
+                Divider()
+                    .overlay(HousekeeperTheme.divider)
+                    .padding(.horizontal, 12)
+                Group {
+                    if rule.isSupported {
+                        RuleDetails(rule: rule)
+                    } else {
+                        // This version would show its guess for what it
+                        // doesn't know, which would be wrong.
+                        Text("This version of Housekeeper can't show this rule's details.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(HousekeeperTheme.secondaryText)
+                    }
+                }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(HousekeeperTheme.surface))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(
+                    isSelected ? HousekeeperTheme.accent : (isExpanded ? HousekeeperTheme.accent.opacity(0.55) : HousekeeperTheme.surfaceBorder),
+                    lineWidth: isSelected ? 1.5 : 1
+                )
+        )
+        .opacity(rule.enabled && rule.isSupported ? 1 : 0.6)
+        .confirmationDialog(deleteTitle, isPresented: $confirmsDelete) {
+            Button("Delete Rule", role: .destructive) { model.deleteRule(rule) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(deleteMessage)
+        }
+    }
+
+    private var deleteTitle: String {
+        let name = rule.name.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "Delete this rule?" : "Delete the rule “\(name)”?"
+    }
+
+    /// Says what goes and what stays, so the choice is informed.
+    private var deleteMessage: String {
+        let conditions = "\(rule.conditions.count) condition\(rule.conditions.count == 1 ? "" : "s")"
+        let actions = "\(rule.actions.count) action\(rule.actions.count == 1 ? "" : "s")"
+        return "Its \(conditions) and \(actions) are deleted, and this can't be undone. "
+            + "Files it already processed stay where they are, and its past activity is kept."
+    }
+
+    private func metaPill(icon: String, text: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon).font(.system(size: 9))
+            Text(text).font(.system(size: 10, weight: .medium))
+        }
+        .foregroundStyle(HousekeeperTheme.secondaryText)
+    }
+
+
+    private var enabledBinding: Binding<Bool> {
+        Binding(get: { rule.enabled }, set: { model.toggleRule(rule, enabled: $0) })
+    }
+}
+
+/// Keep native List selection and keyboard handling without drawing a second,
+/// rectangular selection background behind the rounded rule cards.
+private struct RuleListSelectionAppearance: NSViewRepresentable {
+    func makeNSView(context: Context) -> SelectionAppearanceView { SelectionAppearanceView() }
+
+    func updateNSView(_ view: SelectionAppearanceView, context: Context) {
+        view.removeNativeHighlight()
+    }
+
+    final class SelectionAppearanceView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            removeNativeHighlight()
+        }
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            removeNativeHighlight()
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        func removeNativeHighlight() {
+            var ancestor = superview
+            while let view = ancestor {
+                if let table = view as? NSTableView {
+                    table.selectionHighlightStyle = .none
+                    return
+                }
+                ancestor = view.superview
+            }
+        }
+    }
+}
+
+private struct RuleCopyRequest: Identifiable {
+    let id = UUID()
+    let sourceFolderID: String
+    let ruleIDs: Set<String>
+}
+
+private struct RuleDetails: View {
+    let rule: Rule
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            detailSection(
+                label: "IF",
+                rows: conditionRows,
+                emptyText: "Matches every file in scope."
+            )
+
+            detailSection(
+                label: "DO",
+                rows: actionRows,
+                emptyText: "No actions configured."
+            )
+        }
+        .textSelection(.enabled)
+    }
+
+    private var conditionRows: [RuleDetailRow] {
+        rule.conditions.map { condition in
+            RuleDetailRow(
+                icon: condition.kind.iconSystemName,
+                badge: condition.kind.label,
+                title: "\(condition.operator.label) \(condition.value)",
+                detail: nil
+            )
+        }
+    }
+
+    private var actionRows: [RuleDetailRow] {
+        rule.actions.sorted { $0.position < $1.position }.map { action in
+            let summary = actionSummary(action)
+            return RuleDetailRow(
+                icon: action.kind.iconSystemName,
+                badge: action.kind.label,
+                title: summary.title,
+                detail: summary.detail
+            )
+        }
+    }
+
+    private func detailSection(label: String, rows: [RuleDetailRow], emptyText: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(HousekeeperTheme.secondaryText)
+                .frame(width: 22, alignment: .trailing)
+                .padding(.top, rows.isEmpty ? 1 : 6)
+
+            VStack(alignment: .leading, spacing: 6) {
+                if rows.isEmpty {
+                    Text(emptyText)
+                        .font(.system(size: 11))
+                        .foregroundStyle(HousekeeperTheme.secondaryText)
+                        .frame(minHeight: 24, alignment: .center)
+                } else {
+                    ForEach(rows) { row in
+                        ruleDetailRow(row)
+                    }
+                }
+            }
+        }
+    }
+
+    private func ruleDetailRow(_ row: RuleDetailRow) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: row.icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(HousekeeperTheme.accent)
+                .frame(width: 14)
+
+            Text(row.badge.uppercased())
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(HousekeeperTheme.accent)
+                .lineLimit(1)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(HousekeeperTheme.accent.opacity(0.14))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(HousekeeperTheme.accent.opacity(0.25))
+                )
+
+            Text(row.title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(HousekeeperTheme.primaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            if let detail = row.detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(HousekeeperTheme.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
+    }
+
+    private func actionSummary(_ action: Action) -> (title: String, detail: String?) {
+        switch action.kind {
+        case .moveToFolder:
+            return ("to folder", action.params[ActionParam.destination]?.stringValue)
+        case .copyToFolder:
+            return ("to folder", action.params[ActionParam.destination]?.stringValue)
+        case .syncFolders:
+            return ("with folder", action.params[ActionParam.destination]?.stringValue)
+        case .rename:
+            return ("to \(action.params[ActionParam.pattern]?.stringValue ?? "")", action.params[ActionParam.cleanFileName]?.boolValue == true ? "clean file name" : nil)
+        case .moveToTrash:
+            return ("move to Trash", nil)
+        case .delete:
+            return ("delete permanently", nil)
+        case .addTag:
+            return ("add \(tagList(action))", nil)
+        case .removeTag:
+            return ("remove \(tagList(action))", nil)
+        case .setColorLabel:
+            let color = action.params[ActionParam.color]?.stringValue ?? ""
+            return (color.isEmpty ? "clear color label" : "set to \(color)", nil)
+        case .toggleLock:
+            return (action.params[ActionParam.locked]?.boolValue == true ? "lock" : "unlock", nil)
+        case .toggleExtension:
+            return (action.params[ActionParam.extensionHidden]?.boolValue == true ? "hide extension" : "show extension", nil)
+        case .runScript:
+            let script = action.params[ActionParam.script]?.stringValue ?? ""
+            let lines = script.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            let firstLine = lines.first.map(String.init) ?? ""
+            return (firstLine.isEmpty ? "run script" : firstLine, lines.count > 1 ? "\(lines.count) lines" : nil)
+        case .runShortcut:
+            let name = action.params[ActionParam.shortcutName]?.stringValue ?? ""
+            return (name.isEmpty ? "run shortcut" : name, ActionExecutor.shortcutInputMode(action).label)
+        case .openApplication:
+            let path = action.params[ActionParam.applicationPath]?.stringValue ?? ""
+            let appName = path.isEmpty ? "open application" : ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+            let detail = ActionExecutor.passesFileToApplication(action) ? "with matched file" : nil
+            return (appName, detail)
+        case .importToLibrary:
+            let library = LibraryType(rawValue: action.params[ActionParam.libraryType]?.stringValue ?? "")?.label ?? "Library"
+            let playlist = action.params[ActionParam.targetPlaylist]?.stringValue ?? ""
+            return ("import to \(library)", playlist.isEmpty ? nil : playlist)
+        case .uncompress:
+            return ("uncompress ZIP", MoveConflictResolution(rawValue: action.params[ActionParam.onConflict]?.stringValue ?? "")?.label)
+        case .compress:
+            let name = action.params[ActionParam.archiveName]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let destination = action.params[ActionParam.destination]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            var details = [name.isEmpty ? "{name}.zip" : name]
+            if !destination.isEmpty { details.append("to \(destination)") }
+            if ActionExecutor.deletesSourceAfterCompression(action) { details.append("permanently delete source after success") }
+            return ("create ZIP", details.joined(separator: " · "))
+        }
+    }
+
+    private func tagList(_ action: Action) -> String {
+        if let tags = action.params[ActionParam.tags]?.arrayValue?.compactMap(\.stringValue), !tags.isEmpty {
+            return tags.joined(separator: ", ")
+        }
+        if let tag = action.params["tag"]?.stringValue, !tag.isEmpty {
+            return tag
+        }
+        return "tag"
+    }
+}
+
+private struct RuleDetailRow: Identifiable {
+    let id = UUID()
+    let icon: String
+    let badge: String
+    let title: String
+    let detail: String?
+}
+
+private extension View {
+    func pointingHandCursor() -> some View {
+        onHover { isHovering in
+            if isHovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+}
+
+extension PreviewResult: Identifiable {
+    public var id: Int { filesScanned.hashValue ^ matches.count.hashValue ^ reachedMatchLimit.hashValue }
+}
+
+extension Rule: Identifiable {}
+
+private struct PreviewSheet: View {
+    let result: PreviewResult
+    let onClose: () -> Void
+
+    private var subtitle: String {
+        let matchText = result.reachedMatchLimit
+            ? "\(result.matches.count)+ matched"
+            : "\(result.matches.count) matched"
+        return "\(result.filesScanned) items scanned · \(matchText)"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ViewHeader(
+                title: "Preview (Dry Run)",
+                subtitle: subtitle
+            )
+
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    if result.reachedMatchLimit, let matchLimit = result.matchLimit {
+                        HStack(spacing: 8) {
+                            Image(systemName: "list.bullet.rectangle")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(HousekeeperTheme.accent)
+                            Text("Showing the first \(matchLimit) matches. Narrow the folder scope or conditions to see fewer results.")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(HousekeeperTheme.secondaryText)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(HousekeeperTheme.accent.opacity(0.10)))
+                    }
+
+                    ForEach(result.matches, id: \.path) { match in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "doc.fill").font(.system(size: 11)).foregroundStyle(HousekeeperTheme.accent)
+                                Text(match.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(HousekeeperTheme.primaryText)
+                            }
+                            Text(match.path)
+                                .font(.system(size: 10))
+                                .foregroundStyle(HousekeeperTheme.secondaryText)
+                                .lineLimit(1)
+                                .truncationMode(.head)
+                            ForEach(match.rules, id: \.ruleId) { rulePreview in
+                                Text(rulePreview.ruleName)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(HousekeeperTheme.secondaryText)
+                                ForEach(Array(rulePreview.conditions.enumerated()), id: \.offset) { _, condition in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: condition.matched ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                                .font(.system(size: 9))
+                                                .foregroundStyle(condition.matched ? HousekeeperTheme.accent : .red.opacity(0.85))
+                                            Text(condition.label)
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(HousekeeperTheme.secondaryText)
+                                                .lineLimit(1)
+                                        }
+                                        if let detail = condition.detail {
+                                            Text(detail)
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(HousekeeperTheme.secondaryText)
+                                                .lineLimit(1)
+                                                .padding(.leading, 15)
+                                        }
+                                    }
+                                    .padding(.leading, 6)
+                                }
+                                if rulePreview.actions.isEmpty {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "info.circle")
+                                            .font(.system(size: 9))
+                                            .foregroundStyle(HousekeeperTheme.secondaryText)
+                                        Text("No actions configured for this rule.")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(HousekeeperTheme.secondaryText)
+                                    }
+                                    .padding(.leading, 6)
+                                } else {
+                                    ForEach(rulePreview.actions, id: \.self) { action in
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: action.statusIcon)
+                                                    .font(.system(size: 9))
+                                                    .foregroundStyle(action.statusColor)
+                                                Text(action.description)
+                                                    .font(.system(size: 11))
+                                                    .foregroundStyle(HousekeeperTheme.primaryText)
+                                                Text(action.statusLabel)
+                                                    .font(.system(size: 10, weight: .medium))
+                                                    .foregroundStyle(action.statusColor)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(Capsule().fill(action.statusColor.opacity(0.12)))
+                                            }
+                                            if let targetPath = action.targetPath {
+                                                Text("\((action.sourcePath as NSString).lastPathComponent) -> \((targetPath as NSString).lastPathComponent)")
+                                                    .font(.system(size: 10))
+                                                    .foregroundStyle(HousekeeperTheme.secondaryText)
+                                            }
+                                            if let warning = action.warning {
+                                                Text(warning)
+                                                    .font(.system(size: 10))
+                                                    .foregroundStyle(.orange)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                                    .textSelection(.enabled)
+                                            }
+                                        }
+                                        .padding(.leading, 6)
+                                    }
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(HousekeeperTheme.surface))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(HousekeeperTheme.surfaceBorder))
+                    }
+
+                    if result.matches.isEmpty {
+                        Text("No files match the current rules.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(HousekeeperTheme.secondaryText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 40)
+                    }
+                }
+            }
+            .textSelection(.enabled)
+            .scrollIndicators(.never)
+
+            HStack {
+                Spacer()
+                Button("Close", action: onClose).buttonStyle(SecondaryButtonStyle())
+            }
+        }
+        .padding(16)
+        .frame(width: 860, height: 680)
+        .background(HousekeeperTheme.background)
+    }
+}
+
+private extension ConditionPreview {
+    var label: String {
+        "\(kind.label) \(`operator_`.label) \(value)"
+    }
+}
+
+private extension ActionPreview {
+    var statusLabel: String {
+        if warning != nil { return "Likely to fail" }
+        switch status {
+        case .wouldRun: return "Would run"
+        case .wouldSkip: return "Would skip"
+        case .blockedByConflict: return "Blocked by conflict"
+        case .needsConfirmation: return "Needs confirmation"
+        }
+    }
+
+    var statusIcon: String {
+        if warning != nil { return "exclamationmark.triangle.fill" }
+        switch status {
+        case .wouldRun: return "arrow.turn.down.right"
+        case .wouldSkip: return "minus.circle"
+        case .blockedByConflict: return "exclamationmark.triangle.fill"
+        case .needsConfirmation: return "questionmark.circle.fill"
+        }
+    }
+
+    @MainActor var statusColor: Color {
+        if warning != nil { return .orange }
+        switch status {
+        case .wouldRun: return HousekeeperTheme.accent
+        case .wouldSkip: return HousekeeperTheme.secondaryText
+        case .blockedByConflict: return .orange
+        case .needsConfirmation: return .purple
+        }
+    }
+}

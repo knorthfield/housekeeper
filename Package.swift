@@ -2,32 +2,32 @@
 import PackageDescription
 
 let package = Package(
-    name: "Forel",
+    name: "Housekeeper",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "ForelCore", targets: ["ForelCore"]),
-        .executable(name: "ForelApp", targets: ["ForelApp"]),
+        .library(name: "HousekeeperCore", targets: ["HousekeeperCore"]),
+        .executable(name: "HousekeeperApp", targets: ["HousekeeperApp"]),
     ],
     dependencies: [
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.18"),
     ],
     targets: [
         .target(
-            name: "ForelCore",
+            name: "HousekeeperCore",
             dependencies: [
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ]
         ),
         .executableTarget(
-            name: "ForelApp",
+            name: "HousekeeperApp",
             dependencies: [
-                "ForelCore",
+                "HousekeeperCore",
             ],
             resources: [.copy("Resources")]
         ),
         .testTarget(
-            name: "ForelCoreTests",
-            dependencies: ["ForelCore"]
+            name: "HousekeeperCoreTests",
+            dependencies: ["HousekeeperCore"]
         ),
     ]
 )
