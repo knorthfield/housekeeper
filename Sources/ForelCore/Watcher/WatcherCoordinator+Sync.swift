@@ -20,13 +20,13 @@ extension WatcherCoordinator {
     /// Removes, from every Sync Folders mirror covering `path`, the copies of
     /// what is gone at or below it.
     func syncRemovals(at path: String, waitsForSettledFiles: Bool) {
-        let (scopes, isPro) = db.withLock { db -> ([(root: String, rules: [Rule])], Bool) in
+        let scopes = db.withLock { db -> [(root: String, rules: [Rule])] in
             let folders = ((try? db.listFolders()) ?? []).filter(\.enabled)
             let scopes = folders.compactMap { folder -> (root: String, rules: [Rule])? in
                 guard ActionExecutor.relativePath(root: folder.path, path: path) != nil else { return nil }
-                return (folder.path, (try? db.executionRules(folderID: folder.id, isPro: self.isPro)) ?? [])
+                return (folder.path, (try? db.executionRules(folderID: folder.id)) ?? [])
             }
-            return (scopes, self.isPro)
+            return scopes
         }
         for scope in scopes {
             if let package = ActionExecutor.syncPackage(containing: path, root: scope.root) {
@@ -35,7 +35,7 @@ extension WatcherCoordinator {
                 continue
             }
             let history = RuleEngine.runSyncRemovals(rules: scope.rules, root: scope.root, path: path,
-                                                     batchId: UUID().uuidString, isPro: isPro)
+                                                     batchId: UUID().uuidString)
             guard !history.isEmpty else { continue }
             db.withLock { db in try? db.insertHistoryEntries(history) }
             onHistoryRecorded?()
@@ -48,7 +48,7 @@ extension WatcherCoordinator {
         db.withLock { db in
             guard let folder = try? db.folderForPath(path),
                   let package = ActionExecutor.syncPackage(containing: path, root: folder.path) else { return nil }
-            let rules = (try? db.executionRules(folderID: folder.id, isPro: isPro)) ?? []
+            let rules = (try? db.executionRules(folderID: folder.id)) ?? []
             return rules.contains { $0.actions.contains { $0.kind == .syncFolders } } ? package : nil
         }
     }

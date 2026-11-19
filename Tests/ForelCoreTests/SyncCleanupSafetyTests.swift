@@ -20,12 +20,12 @@ import Testing
     }
 
     private func cleanup(_ execution: String, db: Database, folder: WatchedFolder) throws -> ([FilePreview], [HistoryEntry]) {
-        let rules = try db.executionRules(folderID: folder.id, isPro: true)
+        let rules = try db.executionRules(folderID: folder.id)
         switch execution {
         case "preview":
-            return (RuleEngine.previewSyncRemovals(rules: rules, root: folder.path, path: folder.path, isPro: true), [])
+            return (RuleEngine.previewSyncRemovals(rules: rules, root: folder.path, path: folder.path), [])
         case "manual":
-            let history = RuleEngine.runSyncRemovals(rules: rules, root: folder.path, path: folder.path, batchId: "cleanup", isPro: true)
+            let history = RuleEngine.runSyncRemovals(rules: rules, root: folder.path, path: folder.path, batchId: "cleanup")
             try db.insertHistoryEntries(history)
             return ([], history)
         default:

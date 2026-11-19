@@ -91,8 +91,6 @@ struct SidebarView: View {
 
             Spacer(minLength: 0)
 
-            if !model.isPro { MonthlyFileUsageView() }
-
             HStack {
                 if #available(macOS 14.0, *) {
                     SettingsFooterLink()
@@ -144,8 +142,7 @@ struct SidebarView: View {
 
     private func folderCard(_ folder: WatchedFolder) -> some View {
         let isSelected = model.selectedFolderId == folder.id
-        let isAllowed = FreePlan.allows(folderID: folder.id, folders: model.folders, isPro: model.isPro)
-        let isActive = folder.enabled && isAllowed
+        let isActive = folder.enabled
         return HStack(spacing: 10) {
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 11))
@@ -163,7 +160,7 @@ struct SidebarView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text((folder.path as NSString).lastPathComponent)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(isAllowed ? ForelTheme.primaryText : ForelTheme.secondaryText)
+                    .foregroundStyle(ForelTheme.primaryText)
                     .lineLimit(1)
                 Text((folder.path as NSString).deletingLastPathComponent)
                     .font(.system(size: 10))
@@ -174,26 +171,19 @@ struct SidebarView: View {
 
             Spacer(minLength: 4)
 
-            if !isAllowed {
-                Label("Pro", systemImage: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(ForelTheme.pro)
-            }
-            ForelSwitch(isOn: isAllowed ? enabledBinding(folder) : .constant(false), compact: true)
-                .disabled(!isAllowed)
-                .opacity(isAllowed ? 1 : 0.5)
+            ForelSwitch(isOn: enabledBinding(folder), compact: true)
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 10)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? (isAllowed ? ForelTheme.accent : ForelTheme.secondaryText).opacity(0.14) : ForelTheme.surface)
+                .fill(isSelected ? ForelTheme.accent.opacity(0.14) : ForelTheme.surface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(isSelected ? (isAllowed ? ForelTheme.accent : ForelTheme.secondaryText).opacity(0.5) : ForelTheme.surfaceBorder)
+                .strokeBorder(isSelected ? ForelTheme.accent.opacity(0.5) : ForelTheme.surfaceBorder)
         )
-        .help(isAllowed ? folder.path : "Reorder folders or activate Pro to use this folder.")
+        .help(folder.path)
         .contentShape(Rectangle())
         .onTapGesture {
             model.leaveRuleEditor {
@@ -252,10 +242,6 @@ struct SidebarView: View {
     }
 
     private func addFolder() {
-        guard model.canAddFolder else {
-            model.proUpgrade = .folders
-            return
-        }
         if let path = FolderPicker.choose() {
             // Adding a folder selects it, which leaves the rule editor.
             model.leaveRuleEditor { model.addFolder(path: path) }

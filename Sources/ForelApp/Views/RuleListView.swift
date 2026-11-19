@@ -36,7 +36,7 @@ struct RuleListView: View {
                 CopyRulesSheet(
                     ruleCount: request.ruleIDs.count,
                     sourceFolderID: request.sourceFolderID,
-                    folders: model.folders, isPro: model.isPro,
+                    folders: model.folders,
                     onCopy: { destination in
                         try model.copyRules(request.ruleIDs, fromFolderID: request.sourceFolderID, toFolderID: destination)
                         copyRequest = nil
@@ -51,19 +51,6 @@ struct RuleListView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
-            if let notice = model.planNotice {
-                HStack {
-                    Text(notice)
-                    .font(.caption)
-                    .foregroundStyle(ForelTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    Button("Discover Pro") {
-                        model.proUpgrade = model.selectedFolderIsAllowed ? .monthlyFiles : .folders
-                    }
-                        .buttonStyle(.link)
-                }
-            }
             if model.paused, model.selectedFolderId != nil {
                 pausedBanner
             }
@@ -98,18 +85,6 @@ struct RuleListView: View {
                 List(selection: $selectedRuleIDs) {
                     ForEach(Array(model.rules.enumerated()), id: \.element.id) { index, rule in
                         VStack(alignment: .leading, spacing: 4) {
-                            if !model.selectedFolderIsAllowed || (!model.isPro && FreePlan.requiredFeature(for: rule) != nil) {
-                                Button("Kept for Pro — not running") {
-                                    if let feature = FreePlan.requiredFeature(for: rule) {
-                                        model.proUpgrade = .feature(feature)
-                                    } else {
-                                        model.proUpgrade = .folders
-                                    }
-                                }
-                                    .buttonStyle(.link)
-                                    .font(.caption)
-                                    .foregroundStyle(ForelTheme.secondaryText)
-                            }
                             if !rule.isSupported {
                                 Label("Created with a newer version of Forel — not running. Update Forel to run or edit it.", systemImage: "exclamationmark.triangle")
                                     .font(.caption)
@@ -213,10 +188,6 @@ struct RuleListView: View {
         HStack(spacing: 8) {
             Button {
                 guard let folderId = model.selectedFolderId else { return }
-                guard model.canAddRule else {
-                    model.proUpgrade = .folders
-                    return
-                }
                 model.editingRule = Rule(folderId: folderId, name: "New Rule")
             } label: {
                 Label("New Rule", systemImage: "plus")
@@ -238,8 +209,7 @@ struct RuleListView: View {
                 }
             }
             .buttonStyle(SecondaryButtonStyle())
-            .disabled(!model.selectedFolderIsAllowed || model.isRunningNow)
-            .opacity(model.selectedFolderIsAllowed ? 1 : 0.45)
+            .disabled(model.isRunningNow)
 
             Button {
                 model.preview()
@@ -254,8 +224,7 @@ struct RuleListView: View {
                 }
             }
             .buttonStyle(SecondaryButtonStyle())
-            .disabled(!model.selectedFolderIsAllowed || model.isPreviewing)
-            .opacity(model.selectedFolderIsAllowed ? 1 : 0.45)
+            .disabled(model.isPreviewing)
 
             Spacer()
         }
@@ -313,18 +282,12 @@ struct RuleListView: View {
                 Text("No rules yet")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(ForelTheme.primaryText)
-                Text(model.canAddRule
-                     ? "Create a rule to automate files in this folder."
-                     : "Reorder folders or activate Pro to add rules in this folder.")
+                Text("Create a rule to automate files in this folder.")
                     .font(.system(size: 11))
                     .foregroundStyle(ForelTheme.secondaryText)
                     .multilineTextAlignment(.center)
                 Button {
                     guard let folderId = model.selectedFolderId else { return }
-                    guard model.canAddRule else {
-                        model.proUpgrade = .folders
-                        return
-                    }
                     model.editingRule = Rule(folderId: folderId, name: "New Rule")
                 } label: {
                     Label("New Rule", systemImage: "plus")
@@ -386,7 +349,6 @@ private struct RuleCard: View {
                     .toggleStyle(.switch)
                     .tint(ForelTheme.accent)
                     .controlSize(.small)
-                    .disabled(!model.selectedFolderIsAllowed)
 
                 Button(action: onToggleExpanded) {
                     VStack(alignment: .leading, spacing: 3) {
@@ -464,7 +426,7 @@ private struct RuleCard: View {
                     lineWidth: isSelected ? 1.5 : 1
                 )
         )
-        .opacity(rule.enabled && rule.isSupported && model.selectedFolderIsAllowed ? 1 : 0.6)
+        .opacity(rule.enabled && rule.isSupported ? 1 : 0.6)
         .confirmationDialog(deleteTitle, isPresented: $confirmsDelete) {
             Button("Delete Rule", role: .destructive) { model.deleteRule(rule) }
             Button("Cancel", role: .cancel) {}
@@ -496,7 +458,7 @@ private struct RuleCard: View {
 
 
     private var enabledBinding: Binding<Bool> {
-        Binding(get: { rule.enabled && model.selectedFolderIsAllowed }, set: { model.toggleRule(rule, enabled: $0) })
+        Binding(get: { rule.enabled }, set: { model.toggleRule(rule, enabled: $0) })
     }
 }
 

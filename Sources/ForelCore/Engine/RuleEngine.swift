@@ -112,7 +112,7 @@ public enum RuleEngine {
     /// status) with `previewFile` by going through `ActionExecutor.plan`
     /// first, then acting on it — so Dry Run, Run Now, and the watcher can
     /// never see a different outcome for the same file and rules.
-    public static func run(path: String, depth: Int, rules: [Rule], batchId: String, root: String? = nil, isPro: Bool = true) -> (matched: [String], history: [HistoryEntry]) {
+    public static func run(path: String, depth: Int, rules: [Rule], batchId: String, root: String? = nil) -> (matched: [String], history: [HistoryEntry]) {
         guard !SystemFileFilter.isExcluded((path as NSString).lastPathComponent), !FileReadiness.isMarkedBusy(path) else {
             return ([], [])
         }
@@ -141,8 +141,8 @@ public enum RuleEngine {
             for ruleIndex in target.startRuleIndex..<rules.count {
                 let rule = rules[ruleIndex]
                 guard !blockedRuleIds.contains(rule.id) else { continue }
-                guard rule.enabled, rule.isSupported, isPro || FreePlan.requiredFeature(for: rule) == nil,
-                      ruleMatches(rule, path: currentPath, depth: currentDepth, allowOCR: isPro) else { continue }
+                guard rule.enabled, rule.isSupported,
+                      ruleMatches(rule, path: currentPath, depth: currentDepth) else { continue }
                 if !checkedBusyContents {
                     checkedBusyContents = true
                     if FileReadiness.containsBusyItem(path) { return ([], []) }
@@ -192,7 +192,7 @@ public enum RuleEngine {
         return (matched, history)
     }
 
-    public static func previewFile(path: String, depth: Int, rules: [Rule], root: String? = nil, isPro: Bool = true) -> FilePreview? {
+    public static func previewFile(path: String, depth: Int, rules: [Rule], root: String? = nil) -> FilePreview? {
         guard !SystemFileFilter.isExcluded((path as NSString).lastPathComponent), !FileReadiness.isMarkedBusy(path) else {
             return nil
         }
@@ -217,9 +217,9 @@ public enum RuleEngine {
             for ruleIndex in target.startRuleIndex..<rules.count {
                 let rule = rules[ruleIndex]
                 guard !blockedRuleIds.contains(rule.id) else { continue }
-                guard rule.enabled, rule.isSupported, isPro || FreePlan.requiredFeature(for: rule) == nil,
+                guard rule.enabled, rule.isSupported,
                       ruleInScope(rule, depth: currentDepth) else { continue }
-                let conditions = conditionPreviews(rule, path: currentPath, allowOCR: isPro)
+                let conditions = conditionPreviews(rule, path: currentPath)
                 guard conditionResultsMatch(conditions.map(\.matched), rule.conditionMatch) else { continue }
                 if !checkedBusyContents {
                     checkedBusyContents = true
@@ -263,12 +263,12 @@ public enum RuleEngine {
         return FilePreview(path: path, name: (path as NSString).lastPathComponent, rules: matchedRules)
     }
 
-    private static func conditionPreviews(_ rule: Rule, path: String, allowOCR: Bool) -> [ConditionPreview] {
+    private static func conditionPreviews(_ rule: Rule, path: String) -> [ConditionPreview] {
         rule.conditions.map { condition in
             // `contents` runs the extraction pipeline once and reports which
             // strategy was used, so the Dry Run can show what was actually read.
             if condition.kind == .contents {
-                let result = ConditionEvaluator.evaluateContents(condition, path: path, allowOCR: allowOCR)
+                let result = ConditionEvaluator.evaluateContents(condition, path: path)
                 let detail: String
                 if let message = result.message {
                     detail = "\(result.strategy.label) — \(message)"
@@ -287,7 +287,7 @@ public enum RuleEngine {
                 kind: condition.kind,
                 operator_: condition.operator,
                 value: condition.value,
-                matched: ConditionEvaluator.evaluate(condition, path: path, allowOCR: allowOCR)
+                matched: ConditionEvaluator.evaluate(condition, path: path)
             )
         }
     }
@@ -308,16 +308,16 @@ public enum RuleEngine {
     /// `.any` are order-independent. Used by `run`, which only needs a
     /// yes/no answer; `previewFile` keeps the original order and evaluates
     /// every condition on purpose, to show each one's result in the Dry Run.
-    static func ruleMatches(_ rule: Rule, path: String, depth: Int, allowOCR: Bool) -> Bool {
+    static func ruleMatches(_ rule: Rule, path: String, depth: Int) -> Bool {
         guard ruleInScope(rule, depth: depth) else { return false }
         if rule.conditions.isEmpty { return true }
 
         let ordered = rule.conditions.sorted { evaluationCost($0.kind) < evaluationCost($1.kind) }
         switch rule.conditionMatch {
         case .all:
-            return ordered.allSatisfy { ConditionEvaluator.evaluate($0, path: path, allowOCR: allowOCR) }
+            return ordered.allSatisfy { ConditionEvaluator.evaluate($0, path: path) }
         case .any:
-            return ordered.contains { ConditionEvaluator.evaluate($0, path: path, allowOCR: allowOCR) }
+            return ordered.contains { ConditionEvaluator.evaluate($0, path: path) }
         }
     }
 

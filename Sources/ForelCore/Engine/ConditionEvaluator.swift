@@ -19,7 +19,7 @@ import Darwin
 
 public enum ConditionEvaluator {
     /// Returns true if the file at `path` satisfies the condition.
-    public static func evaluate(_ condition: Condition, path: String, allowOCR: Bool = true) -> Bool {
+    public static func evaluate(_ condition: Condition, path: String) -> Bool {
         let url = URL(fileURLWithPath: path)
         let attrs = try? FileManager.default.attributesOfItem(atPath: path)
 
@@ -95,7 +95,7 @@ public enum ConditionEvaluator {
             }
 
         case .contents:
-            return evaluateContents(condition, path: path, allowOCR: allowOCR).matched
+            return evaluateContents(condition, path: path).matched
 
         case .createdAt:
             guard let attrs else { return false }
@@ -134,8 +134,8 @@ public enum ConditionEvaluator {
     /// uses the extra detail to explain what was read; `evaluate` discards it.
     /// When no text can be extracted every operator is `false`, so a rule never
     /// matches on content it could not read (including the negative operators).
-    static func evaluateContents(_ condition: Condition, path: String, allowOCR: Bool = true) -> (matched: Bool, strategy: ContentStrategy, message: String?) {
-        let result = ContentExtractor.extract(path: path, allowOCR: allowOCR)
+    static func evaluateContents(_ condition: Condition, path: String) -> (matched: Bool, strategy: ContentStrategy, message: String?) {
+        let result = ContentExtractor.extract(path: path)
         if let text = result.text {
             return (matchString(condition.operator, text, condition.value), result.strategy, result.message)
         }

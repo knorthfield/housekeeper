@@ -18,7 +18,6 @@ import AppKit
 import SwiftUI
 import Combine
 import ForelCore
-import Lab421Licensing
 
 /// Menu-bar item: Forel's leaf glyph, tinted by macOS. Clicking it shows
 /// a SwiftUI quick panel (`QuickPanelView`) styled as a dark glass popover,
@@ -27,28 +26,20 @@ import Lab421Licensing
 final class StatusBarController: NSObject {
     private let statusItem: NSStatusItem
     private let model: AppModel
-    private let updater: UpdaterManager
-    private let license: ForelLicenseManager
     private let onOpenMainWindow: () -> Void
     private var popover: NSPopover?
     private var localDismissMonitor: Any?
     private var globalDismissMonitor: Any?
     private var pausedSubscription: AnyCancellable?
-    private var updateSubscription: AnyCancellable?
-    private var licenseSubscription: AnyCancellable?
-    private var onOpenLicense: (() -> Void)?
 
-    init(model: AppModel, updater: UpdaterManager, license: ForelLicenseManager, onOpenMainWindow: @escaping () -> Void, onOpenLicense: (() -> Void)? = nil) {
+    init(model: AppModel, onOpenMainWindow: @escaping () -> Void) {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         self.model = model
-        self.updater = updater
-        self.license = license
         self.onOpenMainWindow = onOpenMainWindow
-        self.onOpenLicense = onOpenLicense
         super.init()
 
         if let button = statusItem.button {
-            button.image = Self.glyph(paused: model.paused, updateAvailable: updater.updateAvailable)
+            button.image = Self.glyph(paused: model.paused)
             button.target = self
             button.action = #selector(togglePopover)
         }
@@ -56,18 +47,10 @@ final class StatusBarController: NSObject {
         pausedSubscription = model.$paused.sink { [weak self] paused in
             self?.refreshGlyph(paused: paused)
         }
-        updateSubscription = updater.$updateAvailable.sink { [weak self] _ in
-            guard let self else { return }
-            self.refreshGlyph(paused: self.model.paused)
-        }
-        licenseSubscription = license.$state.sink { [weak self] _ in
-            guard let self else { return }
-            self.refreshGlyph(paused: self.model.paused)
-        }
     }
 
     private func refreshGlyph(paused: Bool) {
-        statusItem.button?.image = Self.glyph(paused: paused, updateAvailable: updater.updateAvailable)
+        statusItem.button?.image = Self.glyph(paused: paused)
     }
 
     @objc private func togglePopover() {
@@ -76,23 +59,17 @@ final class StatusBarController: NSObject {
             return
         }
 
-        var panel = QuickPanelView(
+        let panel = QuickPanelView(
             onOpenMainWindow: { [weak self] in
                 self?.popover?.performClose(nil)
                 self?.onOpenMainWindow()
             },
             onQuit: { NSApp.terminate(nil) }
         )
-        panel.onOpenLicense = { [weak self] in
-            self?.popover?.performClose(nil)
-            self?.onOpenLicense?()
-        }
 
         let hostingController = NSHostingController(
             rootView: panel
                 .environmentObject(model)
-                .environmentObject(updater)
-                .environmentObject(license)
         )
 
         let newPopover = NSPopover()
@@ -151,9 +128,8 @@ final class StatusBarController: NSObject {
     /// Menu bar glyph, drawn as a template image (black and clear) so macOS
     /// tints it like every other menu bar icon, in light and dark mode. The
     /// state shows in the shape, never in color: a filled leaf while
-    /// watching, an outlined leaf when paused, and a small dot in the
-    /// top-right corner when an update is available.
-    private static func glyph(paused: Bool, updateAvailable: Bool, size: CGFloat = 18) -> NSImage {
+    /// watching, an outlined leaf when paused.
+    private static func glyph(paused: Bool, size: CGFloat = 18) -> NSImage {
         // Smaller than its box to match the visual weight of the system
         // menu bar glyphs around it.
         let config = NSImage.SymbolConfiguration(pointSize: size * 0.78, weight: .regular)
@@ -173,16 +149,6 @@ final class StatusBarController: NSObject {
         } else {
             NSColor.black.setFill()
             NSBezierPath(roundedRect: NSRect(x: 2, y: 2, width: size - 4, height: size - 4), xRadius: 3, yRadius: 3).fill()
-        }
-        if updateAvailable {
-            let dotSize = size / 3
-            let dot = NSRect(x: size - dotSize, y: size - dotSize, width: dotSize, height: dotSize)
-            // Clear a thin gap around the dot so it stays apart from the leaf.
-            NSGraphicsContext.current?.compositingOperation = .clear
-            NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
-            NSGraphicsContext.current?.compositingOperation = .sourceOver
-            NSColor.black.setFill()
-            NSBezierPath(ovalIn: dot).fill()
         }
         image.unlockFocus()
         image.isTemplate = true

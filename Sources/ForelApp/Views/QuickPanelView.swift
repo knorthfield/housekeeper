@@ -17,7 +17,6 @@
 import AppKit
 import SwiftUI
 import ForelCore
-import Lab421Licensing
 
 /// The menu-bar quick panel: header with status badge, a "Watching" master
 /// switch, watched-folder toggles, and an activity summary. Deep editing
@@ -25,12 +24,8 @@ import Lab421Licensing
 /// glanceable surface.
 struct QuickPanelView: View {
     @EnvironmentObject var model: AppModel
-    @EnvironmentObject var updater: UpdaterManager
-    @EnvironmentObject var license: ForelLicenseManager
-    @Environment(\.openSettings) private var openSettings
     let onOpenMainWindow: () -> Void
     let onQuit: () -> Void
-    var onOpenLicense: (() -> Void)?
     @State private var totalRuleCount = 0
 
     var body: some View {
@@ -48,14 +43,6 @@ struct QuickPanelView: View {
             VStack(alignment: .leading, spacing: 14) {
                 header
 
-                if updater.updateAvailable {
-                    UpdateAvailableBanner(
-                        version: updater.latestVersion,
-                        isInstalling: updater.isInstalling,
-                        action: updater.installUpdate
-                    )
-                }
-
                 GlassCard {
                     ToggleRow(
                         title: "Watching",
@@ -71,8 +58,7 @@ struct QuickPanelView: View {
                             ForEach(model.folders, id: \.id) { folder in
                                 QuickFolderRow(
                                     folder: folder,
-                                    isOn: folderBinding(folder),
-                                    isBlocked: !FreePlan.allows(folderID: folder.id, folders: model.folders, isPro: model.isPro)
+                                    isOn: folderBinding(folder)
                                 )
                                 if folder.id != model.folders.last?.id {
                                     Divider().overlay(ForelTheme.divider).padding(.leading, 50)
@@ -122,27 +108,10 @@ struct QuickPanelView: View {
         HStack(alignment: .top, spacing: 12) {
             BrandMark(size: 38)
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 7) {
-                    Text("Forel")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(ForelTheme.primaryText)
-                    Button(action: showLicenseSettings) {
-                      Text(license.hasAccess ? "Pro" : "Free")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(license.hasAccess ? ForelTheme.pro : ForelTheme.primaryText)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(license.hasAccess ? ForelTheme.pro.opacity(0.16) : ForelTheme.surface))
-                        .overlay(Capsule().strokeBorder(license.hasAccess ? ForelTheme.pro.opacity(0.35) : ForelTheme.surfaceBorder, lineWidth: 1))
-                        .accessibilityLabel(license.hasAccess ? "Forel Pro" : "Forel Free")
-                    }
-                    .buttonStyle(.plain)
-                    .help(license.hasAccess ? "Manage your Pro license" : "Discover Forel Pro")
-                }
+                Text("Forel")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(ForelTheme.primaryText)
                 StatusBadge(active: !model.paused)
-                if !license.hasAccess {
-                    MonthlyFileUsageView(onUpgrade: showLicenseSettings)
-                }
             }
             Spacer(minLength: 0)
         }
@@ -150,11 +119,6 @@ struct QuickPanelView: View {
 
     private func reloadTotalRuleCount() {
         totalRuleCount = model.db.withLock { db in (try? db.countRules()) ?? 0 }
-    }
-
-    private func showLicenseSettings() {
-        onOpenLicense?()
-        openSettings()
     }
 
     private var watchingBinding: Binding<Bool> {

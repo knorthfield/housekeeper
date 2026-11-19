@@ -65,12 +65,12 @@ import Testing
             try saved.insertRule(rule)
         }
         let db = try Database(path: databasePath)
-        let rules = try db.executionRules(folderID: folder.id, isPro: false)
+        let rules = try db.executionRules(folderID: folder.id)
         #expect(rules.first?.actions == rule.actions)
         if execution == "preview" {
             let entries = RuleEngine.walkEntries(root: input, maxDepth: RuleEngine.maxRuleDepth(rules))
             let previews = entries.compactMap {
-                RuleEngine.previewFile(path: $0.path, depth: $0.depth, rules: rules, root: input, isPro: false)
+                RuleEngine.previewFile(path: $0.path, depth: $0.depth, rules: rules, root: input)
             }
             let preview = try #require(previews.first)
             #expect(previews.count == 1)
@@ -82,7 +82,7 @@ import Testing
             let history: [HistoryEntry]
             if execution == "manual" {
                 history = RuleEngine.walkEntries(root: input, maxDepth: RuleEngine.maxRuleDepth(rules)).flatMap {
-                    RuleEngine.run(path: $0.path, depth: $0.depth, rules: rules, batchId: "tokens", root: input, isPro: false).history
+                    RuleEngine.run(path: $0.path, depth: $0.depth, rules: rules, batchId: "tokens", root: input).history
                 }
             } else {
                 let coordinator = WatcherCoordinator(db: db, settleInterval: 0.01)

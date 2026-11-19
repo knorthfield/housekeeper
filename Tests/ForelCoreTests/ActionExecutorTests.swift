@@ -219,7 +219,7 @@ extension ActionExecutorTests {
             : makeCondition(.extension_, .is, "txt", ruleId: rule.id)]
         rule.actions = [makeAction(.compress, .object([:]), ruleId: rule.id)]
         try db.insertRule(rule)
-        let rules = try db.executionRules(folderID: folder.id, isPro: false)
+        let rules = try db.executionRules(folderID: folder.id)
 
         if execution == "watcher" {
             let coordinator = WatcherCoordinator(db: db, settleInterval: 0.01)
@@ -233,10 +233,10 @@ extension ActionExecutorTests {
             #expect(entries.map(\.path) == [source])
             for entry in entries {
                 if execution == "preview" {
-                    let preview = try #require(RuleEngine.previewFile(path: entry.path, depth: entry.depth, rules: rules, isPro: false))
+                    let preview = try #require(RuleEngine.previewFile(path: entry.path, depth: entry.depth, rules: rules))
                     #expect(preview.rules.first?.actions.first?.targetPath == archivePath)
                 } else {
-                    let result = RuleEngine.run(path: entry.path, depth: entry.depth, rules: rules, batchId: "manual", root: watched, isPro: false)
+                    let result = RuleEngine.run(path: entry.path, depth: entry.depth, rules: rules, batchId: "manual", root: watched)
                     #expect(result.history.count == 1)
                     #expect(result.history.first?.status == .applied)
                 }

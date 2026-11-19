@@ -28,16 +28,9 @@ public struct WatcherActivitySummary: Equatable, Sendable {
 /// `watcher::on_event` / `load_folder_and_rules_for_path`.
 public final class WatcherCoordinator: @unchecked Sendable {
     let db: Database
-    private let monthlyUsage: MonthlyFileUsageStore
     private let watcher: FileWatcher
-    private(set) var isPro = false
     private let now: @Sendable () -> Date
-    private var quotaRetryScheduled = false
 
-    public func setProAccess(_ enabled: Bool) {
-        db.withLock { _ in isPro = enabled }
-        processingQueue.async { [weak self] in self?.retryQuotaPendingFiles() }
-    }
     /// FSEvents callbacks must return promptly. File operations can take an
     /// arbitrary amount of time, especially when moving across volumes or to
     /// a network share, so process their immutable event snapshots here
@@ -63,7 +56,6 @@ public final class WatcherCoordinator: @unchecked Sendable {
     public var onVolumeUnavailable: (@Sendable (VolumeUnavailableEvent) -> Void)?
     /// Called whenever an automatic run records history, failures included.
     public var onHistoryRecorded: (@Sendable () -> Void)?
-    public var onMonthlyQuotaReached: (@Sendable () -> Void)?
     public var onProcessingError: (@Sendable (String) -> Void)?
     /// Files to run the rules on again, by the /Volumes name of the disk or
     /// share they wait for. Only touched on `processingQueue`; not persisted.
@@ -86,10 +78,8 @@ public final class WatcherCoordinator: @unchecked Sendable {
         var syncOnly = false
     }
 
-    public init(db: Database, monthlyUsage: MonthlyFileUsageStore = MonthlyFileUsageStore(),
-                settleInterval: TimeInterval = 1.0, now: @escaping @Sendable () -> Date = { Date() }) {
+    public init(db: Database, settleInterval: TimeInterval = 1.0, now: @escaping @Sendable () -> Date = { Date() }) {
         self.db = db
-        self.monthlyUsage = monthlyUsage
         self.settleInterval = settleInterval
         self.now = now
         var watcherRef: FileWatcher!
@@ -104,7 +94,6 @@ public final class WatcherCoordinator: @unchecked Sendable {
         watcher.add(path)
         processingQueue.async { [weak self] in
             self?.watchedRoots.insert(path)
-            self?.retryQuotaPendingFiles()
         }
     }
 
@@ -180,7 +169,7 @@ public final class WatcherCoordinator: @unchecked Sendable {
             // including avoiding snapshots of unrelated modified trees.
             let hasSync = db.withLock { db in
                 guard let folder = try? db.folderForPath(path) else { return false }
-                let rules = (try? db.executionRules(folderID: folder.id, isPro: isPro)) ?? []
+                let rules = (try? db.executionRules(folderID: folder.id)) ?? []
                 return rules.contains { $0.actions.contains { $0.kind == .syncFolders } }
             }
             guard hasSync else { return }
@@ -327,19 +316,19 @@ public final class WatcherCoordinator: @unchecked Sendable {
         guard FileManager.default.fileExists(atPath: path) else { return }
         guard retrying || hasPathChangedSinceLastEvaluation(path) else { return }
 
-        guard let (folder, rules, isPro) = db.withLock({ db -> (WatchedFolder, [Rule], Bool)? in
+        guard let (folder, rules) = db.withLock({ db -> (WatchedFolder, [Rule])? in
             guard let folder = try? db.folderForPath(path) else { return nil }
-            let saved = (try? db.executionRules(folderID: folder.id, isPro: self.isPro)) ?? []
+            let saved = (try? db.executionRules(folderID: folder.id)) ?? []
             let rules = syncOnly ? Self.syncOnlyRules(saved) : saved
             guard !rules.isEmpty else { return nil }
-            return (folder, rules, self.isPro)
+            return (folder, rules)
         }) else { return }
 
         beginProcessing(root: folder.path)
         defer { endProcessing(root: folder.path) }
 
         guard let depth = RuleEngine.pathDepth(root: folder.path, path: path) else { return }
-        runAndRecord(path: path, depth: depth, rules: rules, watchedRoot: folder.path, isPro: isPro, syncOnly: syncOnly)
+        runAndRecord(path: path, depth: depth, rules: rules, watchedRoot: folder.path, syncOnly: syncOnly)
     }
 
     private func beginProcessing(root: String) {
@@ -415,12 +404,12 @@ public final class WatcherCoordinator: @unchecked Sendable {
             return
         }
 
-        guard let (folder, rules, isPro) = db.withLock({ db -> (WatchedFolder, [Rule], Bool)? in
+        guard let (folder, rules) = db.withLock({ db -> (WatchedFolder, [Rule])? in
             guard let folder = try? db.folderForPath(root) else { return nil }
-            let saved = (try? db.executionRules(folderID: folder.id, isPro: self.isPro)) ?? []
+            let saved = (try? db.executionRules(folderID: folder.id)) ?? []
             let rules = syncOnly ? Self.syncOnlyRules(saved) : saved
             guard !rules.isEmpty else { return nil }
-            return (folder, rules, self.isPro)
+            return (folder, rules)
         }) else { return }
         guard let rootDepth = RuleEngine.pathDepth(root: folder.path, path: root) else { return }
 
@@ -434,7 +423,7 @@ public final class WatcherCoordinator: @unchecked Sendable {
             if waitsForSettledFiles {
                 awaitSettled(path, includingContents: false, syncOnly: syncOnly)
             } else {
-                handle(path: path, depth: depth, rules: rules, watchedRoot: folder.path, isPro: isPro, syncOnly: syncOnly)
+                handle(path: path, depth: depth, rules: rules, watchedRoot: folder.path, syncOnly: syncOnly)
             }
         }
 
@@ -458,68 +447,16 @@ public final class WatcherCoordinator: @unchecked Sendable {
         }
     }
 
-    private func handle(path: String, depth: Int, rules: [Rule], watchedRoot: String, isPro: Bool, syncOnly: Bool = false) {
+    private func handle(path: String, depth: Int, rules: [Rule], watchedRoot: String, syncOnly: Bool = false) {
         guard FileManager.default.fileExists(atPath: path) else { return }
         guard hasPathChangedSinceLastEvaluation(path) else { return }
 
-        runAndRecord(path: path, depth: depth, rules: rules, watchedRoot: watchedRoot, isPro: isPro, syncOnly: syncOnly)
+        runAndRecord(path: path, depth: depth, rules: rules, watchedRoot: watchedRoot, syncOnly: syncOnly)
     }
 
-    private func runAndRecord(path: String, depth: Int, rules: [Rule], watchedRoot: String, isPro: Bool, syncOnly: Bool = false) {
-        do {
-            let result = try monthlyUsage.runWithFreePlan(path: path, depth: depth, rules: rules,
-                                               batchId: UUID().uuidString, root: watchedRoot, isPro: isPro, at: now())
-            monthlyUsage.removeQuotaPendingFile(path)
-            record(matched: result.matched, history: result.history, path: path, rules: rules, syncOnly: syncOnly)
-        } catch FreePlanError.monthlyFileLimit {
-            monthlyUsage.queueQuotaPendingFile(path)
-            onMonthlyQuotaReached?()
-            scheduleQuotaRetry()
-        } catch {
-            onProcessingError?(error.localizedDescription)
-        }
-    }
-
-    /// Kept in preferences so a restart does not lose files waiting for quota.
-    /// Only still-watched paths are resumed, including after a Pro activation.
-    func retryQuotaPendingFiles() {
-        guard !watchedRoots.isEmpty else { return }
-        let pro = db.withLock { _ in isPro }
-        guard pro || !monthlyUsage.monthlyFileUsage(at: now()).isExhausted else {
-            scheduleQuotaRetry()
-            return
-        }
-        let paths = monthlyUsage.quotaPendingFiles()
-        for path in paths where watchedRoots.contains(where: { Self.isPath(path, under: $0) }) {
-            guard FileManager.default.fileExists(atPath: path) else {
-                monthlyUsage.removeQuotaPendingFile(path)
-                continue
-            }
-            // A prior failure (e.g. a disconnected disk) may have cached the
-            // unchanged file before its retry hit the quota. It still needs
-            // another evaluation, through the normal settling checks.
-            do {
-                try db.withLock { try $0.deleteWatchedPathState(path) }
-            } catch {
-                onProcessingError?(error.localizedDescription)
-                continue
-            }
-            handle(event: .pathArrived(path), waitsForSettledFiles: true)
-        }
-    }
-
-    private func scheduleQuotaRetry() {
-        guard !quotaRetryScheduled else { return }
-        quotaRetryScheduled = true
-        let period = MonthlyFileUsage(at: now())
-        // Recheck hourly too, so waking the Mac or changing its time zone
-        // cannot leave an obsolete reset deadline scheduled for a whole month.
-        let delay = max(1, min(3600, period.resetsAt.timeIntervalSince(now())))
-        processingQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self else { return }
-            self.quotaRetryScheduled = false
-            self.retryQuotaPendingFiles()
-        }
+    private func runAndRecord(path: String, depth: Int, rules: [Rule], watchedRoot: String, syncOnly: Bool = false) {
+        let result = RuleEngine.run(path: path, depth: depth, rules: rules, batchId: UUID().uuidString, root: watchedRoot)
+        record(matched: result.matched, history: result.history, path: path, rules: rules, syncOnly: syncOnly)
     }
 
     /// Persists what a run on `path` did and tells whoever listens.

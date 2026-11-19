@@ -49,12 +49,12 @@ import Testing
 
         switch execution {
         case "preview":
-            let previews = RuleEngine.previewSyncRemovals(rules: rules, root: folder.path, path: folder.path, isPro: true)
+            let previews = RuleEngine.previewSyncRemovals(rules: rules, root: folder.path, path: folder.path)
             #expect(Set(previews.map(\.path)) == expected)
             #expect(previews.allSatisfy { $0.rules[0].actions[0].status == .wouldRun })
             #expect(FileManager.default.fileExists(atPath: target + "/a.txt"))
         case "manual":
-            let history = RuleEngine.runSyncRemovals(rules: rules, root: folder.path, path: folder.path, batchId: "run", isPro: true)
+            let history = RuleEngine.runSyncRemovals(rules: rules, root: folder.path, path: folder.path, batchId: "run")
             #expect(Set(history.map(\.originalPath)) == expected)
         default:
             let coordinator = WatcherCoordinator(db: db, settleInterval: 0.01)
@@ -80,9 +80,9 @@ import Testing
         try writeSyncCopy("copied", to: myFolder + "/copied.txt", from: folder.path + "/Mine/copied.txt")
         let rules = try db.listRules(folderId: folder.id)
 
-        #expect(RuleEngine.previewSyncRemovals(rules: rules, root: folder.path, path: folder.path, isPro: true).map(\.path)
+        #expect(RuleEngine.previewSyncRemovals(rules: rules, root: folder.path, path: folder.path).map(\.path)
             == [myFolder + "/copied.txt"])
-        _ = RuleEngine.runSyncRemovals(rules: rules, root: folder.path, path: folder.path, batchId: "run", isPro: true)
+        _ = RuleEngine.runSyncRemovals(rules: rules, root: folder.path, path: folder.path, batchId: "run")
 
         #expect(try String(contentsOfFile: mine, encoding: .utf8) == "mine")
         #expect(FileManager.default.fileExists(atPath: myFolder))
@@ -109,8 +109,8 @@ import Testing
         try syncAll(db, other)
         let rules = try db.listRules(folderId: folder.id)
 
-        #expect(RuleEngine.previewSyncRemovals(rules: rules, root: folder.path, path: folder.path, isPro: true).isEmpty)
-        _ = RuleEngine.runSyncRemovals(rules: rules, root: folder.path, path: folder.path, batchId: "run", isPro: true)
+        #expect(RuleEngine.previewSyncRemovals(rules: rules, root: folder.path, path: folder.path).isEmpty)
+        _ = RuleEngine.runSyncRemovals(rules: rules, root: folder.path, path: folder.path, batchId: "run")
 
         #expect(try String(contentsOfFile: target + "/b.txt", encoding: .utf8) == "b")
     }
@@ -123,7 +123,7 @@ import Testing
         try FileManager.default.copyItem(atPath: target + "/a.txt", toPath: target + "/a copy.txt")
         let rules = try db.listRules(folderId: folder.id)
 
-        _ = RuleEngine.runSyncRemovals(rules: rules, root: folder.path, path: folder.path, batchId: "run", isPro: true)
+        _ = RuleEngine.runSyncRemovals(rules: rules, root: folder.path, path: folder.path, batchId: "run")
 
         #expect(FileManager.default.fileExists(atPath: target + "/a copy.txt"))
         #expect(FileManager.default.fileExists(atPath: target + "/a.txt"))
@@ -186,8 +186,8 @@ import Testing
         try FileManager.default.moveItem(atPath: folder.path, toPath: dir.path + "/Renamed")
         let rules = try db.listRules(folderId: folder.id)
 
-        #expect(RuleEngine.previewSyncRemovals(rules: rules, root: folder.path, path: folder.path, isPro: true).isEmpty)
-        #expect(RuleEngine.runSyncRemovals(rules: rules, root: folder.path, path: folder.path, batchId: "run", isPro: true).isEmpty)
+        #expect(RuleEngine.previewSyncRemovals(rules: rules, root: folder.path, path: folder.path).isEmpty)
+        #expect(RuleEngine.runSyncRemovals(rules: rules, root: folder.path, path: folder.path, batchId: "run").isEmpty)
         #expect(FileManager.default.fileExists(atPath: target + "/a.txt"))
     }
 }

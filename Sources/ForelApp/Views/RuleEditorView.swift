@@ -25,7 +25,6 @@ struct RuleEditorView: View {
     @State private var rule: Rule
     @State private var showValidationErrors = false
     @State private var errorDismissTask: Task<Void, Never>?
-    @State private var upgradeContext: ProUpgradeContext?
     @EnvironmentObject private var model: AppModel
     @State private var isWide = false
     /// Shared with the card's own toggle: closed until the user opens it,
@@ -87,10 +86,6 @@ struct RuleEditorView: View {
                             showValidationErrors = false
                         }
                     } else {
-                        if !model.isPro, rule.enabled, let feature = FreePlan.requiredFeature(for: rule) {
-                            upgradeContext = .feature(feature)
-                            return
-                        }
                         showValidationErrors = false
                         errorDismissTask?.cancel()
                         onSave(rule)
@@ -105,7 +100,6 @@ struct RuleEditorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(ForelTheme.background)
         .onGeometryChange(for: Bool.self) { $0.size.width >= Self.wideLayoutWidth } action: { isWide = $0 }
-        .sheet(item: $upgradeContext) { context in ProUpgradeView(context: context) }
         // Lets the main window tell whether leaving would lose changes.
         .onAppear { model.editingDraft = rule }
         .onChange(of: rule) { _, draft in model.editingDraft = draft }
@@ -147,7 +141,7 @@ struct RuleEditorView: View {
                         placeholder("No conditions — this rule matches every file in scope.")
                     }
                     ForEach($rule.conditions, id: \.id) { $condition in
-                        ConditionRow(condition: $condition, onRequestUpgrade: { upgradeContext = .feature($0) }) {
+                        ConditionRow(condition: $condition) {
                             rule.conditions.removeAll { $0.id == condition.id }
                         }
                     }
@@ -174,7 +168,7 @@ struct RuleEditorView: View {
                         placeholder("No actions yet — add at least one to make this rule do something.")
                     }
                     ForEach($rule.actions, id: \.id) { $action in
-                        ActionRow(action: $action, onRequestUpgrade: { upgradeContext = .feature($0) }) {
+                        ActionRow(action: $action) {
                             rule.actions.removeAll { $0.id == action.id }
                         }
                     }
@@ -306,7 +300,7 @@ private struct RuleMatchPreviewCard: View {
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             if isScanning { ProgressView().controlSize(.small) }
             Spacer()
-            if let summary, !needsPro {
+            if let summary {
                 Text(checkedLabel(summary))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(ForelTheme.secondaryText)
@@ -325,9 +319,7 @@ private struct RuleMatchPreviewCard: View {
     }
 
     @ViewBuilder private var content: some View {
-        if needsPro {
-            note("This rule uses a Forel Pro feature, so it can't be previewed on the Free plan.")
-        } else if let summary {
+        if let summary {
             if summary.total == 0 {
                 note(summary.isComplete
                      ? "Nothing in this folder matches right now. Matching files are processed when they arrive."
@@ -421,22 +413,17 @@ private struct RuleMatchPreviewCard: View {
         return "\(count) item\(summary.checked == 1 ? "" : "s") checked"
     }
 
-    private var needsPro: Bool {
-        !model.isPro && FreePlan.requiredFeature(for: rule) != nil
-    }
-
     private func refresh() async {
         // Wait for typing to pause before reading the folder again.
         try? await Task.sleep(for: .milliseconds(450))
-        guard !Task.isCancelled, !needsPro,
+        guard !Task.isCancelled,
               let folder = model.folders.first(where: { $0.id == rule.folderId }) else { return }
         let draft = rule
-        let isPro = model.isPro
         let scanLimit = Self.scanLimit
         isScanning = true
         defer { isScanning = false }
         let work = Task.detached(priority: .userInitiated) {
-            RuleEngine.previewMatches(of: draft, root: folder.path, isPro: isPro, scanLimit: scanLimit) {
+            RuleEngine.previewMatches(of: draft, root: folder.path, scanLimit: scanLimit) {
                 Task.isCancelled
             }
         }
@@ -564,7 +551,6 @@ private struct ScopeEditor: View {
 private struct ConditionRow: View {
     @Binding var condition: Condition
     @EnvironmentObject private var model: AppModel
-    let onRequestUpgrade: (ProFeature) -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -593,15 +579,6 @@ private struct ConditionRow: View {
                     .font(.system(size: 10))
                     .foregroundStyle(ForelTheme.secondaryText)
                     .padding(.leading, 2)
-            }
-            if condition.kind == .contents, !model.isPro {
-                HStack {
-                    Text("Document text is included in Free. Images and scanned PDFs require Pro OCR.")
-                        .font(.caption)
-                        .foregroundStyle(ForelTheme.secondaryText)
-                    Button("Unlock OCR") { onRequestUpgrade(.ocr) }
-                        .buttonStyle(.link)
-                }
             }
         }
     }
@@ -733,7 +710,6 @@ private struct ConditionOperatorMenu: View {
 private struct ActionKindMenu: View {
     @Binding var selection: ActionKind
     @EnvironmentObject private var model: AppModel
-    let onRequestUpgrade: (ProFeature) -> Void
 
     var body: some View {
         RuleSelectMenu(title: selection.label) {
@@ -748,9 +724,6 @@ private struct ActionKindMenu: View {
                                     Image(systemName: kind.iconSystemName)
                                         .frame(width: 16)
                                     Text(kind.label)
-                                    if !model.isPro, FreePlan.requiredFeature(for: kind) != nil {
-                                        Label("Pro", systemImage: "lock.fill")
-                                    }
                                 }
                             }
                         }
@@ -764,9 +737,6 @@ private struct ActionKindMenu: View {
                                 Image(systemName: kind.iconSystemName)
                                     .frame(width: 16)
                                 Text(kind.label)
-                                if !model.isPro, FreePlan.requiredFeature(for: kind) != nil {
-                                    Label("Pro", systemImage: "lock.fill")
-                                }
                             }
                         }
                     }
@@ -776,11 +746,7 @@ private struct ActionKindMenu: View {
     }
 
     private func select(_ kind: ActionKind) {
-        if !model.isPro, let feature = FreePlan.requiredFeature(for: kind) {
-            onRequestUpgrade(feature)
-        } else {
-            selection = kind
-        }
+        selection = kind
     }
 }
 
@@ -1071,23 +1037,15 @@ private struct KindValuePicker: View {
 private struct ActionRow: View {
     @Binding var action: Action
     @EnvironmentObject private var model: AppModel
-    let onRequestUpgrade: (ProFeature) -> Void
     let onDelete: () -> Void
     @State private var showingOptions = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            ActionKindMenu(selection: kindBinding, onRequestUpgrade: onRequestUpgrade)
+            ActionKindMenu(selection: kindBinding)
             .frame(minWidth: 160, alignment: .leading)
 
-            Group {
-                if !model.isPro, let feature = FreePlan.requiredFeature(for: action.kind) {
-                    Button("Unlock \(feature.title)") { onRequestUpgrade(feature) }
-                        .buttonStyle(.link)
-                } else {
-                    actionParams
-                }
-            }
+            actionParams
                 .frame(minWidth: 200, alignment: .leading)
                 .frame(minHeight: 32)
                 .layoutPriority(1)

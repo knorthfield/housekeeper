@@ -16,25 +16,13 @@
 
 import SwiftUI
 import ForelCore
-import Lab421Licensing
-
-/// Shared across the app delegate and `SettingsView` so code outside SwiftUI
-/// (e.g. the status item's "Activate" action, or `AppDelegate` reacting to a
-/// denied license) can select a specific settings tab before opening the
-/// `Settings` scene.
-@MainActor
-final class SettingsNavigation: ObservableObject {
-    @Published var selectedCategory: SettingsCategory = .general
-}
 
 /// Modern macOS Settings layout: a category sidebar on the left (matching
 /// System Settings' own convention), detail content on the right — instead
 /// of one long scrolling list of sections.
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
-    @EnvironmentObject var updater: UpdaterManager
-    @EnvironmentObject var license: ForelLicenseManager
-    @EnvironmentObject var navigation: SettingsNavigation
+    @State private var selectedCategory: SettingsCategory = .general
     @State private var launchAtLogin = LoginItem.isEnabled
 
     var body: some View {
@@ -57,8 +45,8 @@ struct SettingsView: View {
             ForEach(SettingsCategory.allCases) { category in
                 SettingsSidebarRow(
                     category: category,
-                    isSelected: navigation.selectedCategory == category,
-                    action: { navigation.selectedCategory = category }
+                    isSelected: selectedCategory == category,
+                    action: { selectedCategory = category }
                 )
             }
             Spacer(minLength: 0)
@@ -71,16 +59,11 @@ struct SettingsView: View {
     private var detail: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                switch navigation.selectedCategory {
+                switch selectedCategory {
                 case .general:
                     generalPane
                 case .permissions:
                     PermissionsSection()
-                case .license:
-                    LicenseSettingsView()
-                        .environmentObject(license)
-                case .updates:
-                    updatesPane
                 case .about:
                     aboutPane
                 }
@@ -141,34 +124,6 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 10)
                 .padding(.horizontal, 14)
-            }
-        }
-    }
-
-    private var updatesPane: some View {
-        Group {
-            SectionLabel(title: "Updates")
-            if updater.updateAvailable {
-                UpdateAvailableBanner(
-                    version: updater.latestVersion,
-                    isInstalling: updater.isInstalling,
-                    action: updater.installUpdate
-                )
-            }
-            GlassCard {
-                ToggleRow(
-                    title: "Automatic updates",
-                    subtitle: "Check for new versions in the background",
-                    isOn: $updater.automaticallyChecksForUpdates
-                )
-                Divider().overlay(ForelTheme.divider).padding(.leading, 14)
-                SettingsActionRow(
-                    title: "Current version",
-                    subtitle: versionSubtitle,
-                    buttonTitle: "Check Now",
-                    action: { updater.checkForUpdates() }
-                )
-                .disabled(updater.isChecking || updater.isInstalling || updater.updateAvailable)
             }
         }
     }
@@ -258,16 +213,10 @@ struct SettingsView: View {
     private var historyMaxDaysDoubleBinding: Binding<Double> {
         Binding(get: { Double(model.historyMaxDays) }, set: { model.setHistoryMaxDays(Int($0)) })
     }
-
-    private var versionSubtitle: String {
-        let current = AppInfo.version
-        if updater.isChecking { return "\(current) — Checking…" }
-        return current
-    }
 }
 
 enum SettingsCategory: CaseIterable, Identifiable {
-    case general, permissions, license, updates, about
+    case general, permissions, about
 
     var id: Self { self }
 
@@ -275,8 +224,6 @@ enum SettingsCategory: CaseIterable, Identifiable {
         switch self {
         case .general: "General"
         case .permissions: "Permissions"
-        case .license: "License"
-        case .updates: "Updates"
         case .about: "About"
         }
     }
@@ -285,8 +232,6 @@ enum SettingsCategory: CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape.fill"
         case .permissions: "lock.shield.fill"
-        case .license: "key.fill"
-        case .updates: "arrow.triangle.2.circlepath"
         case .about: "info.circle.fill"
         }
     }
@@ -295,8 +240,6 @@ enum SettingsCategory: CaseIterable, Identifiable {
         switch self {
         case .general: Color(red: 0.36, green: 0.34, blue: 0.90)
         case .permissions: Color(red: 0.95, green: 0.55, blue: 0.13)
-        case .license: Color(red: 0.20, green: 0.45, blue: 0.80)
-        case .updates: Color(red: 0.20, green: 0.70, blue: 0.45)
         case .about: Color(red: 0.31, green: 0.55, blue: 0.95)
         }
     }

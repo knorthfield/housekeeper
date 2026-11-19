@@ -64,12 +64,12 @@ import Testing
                 try saved.insertRule(rule)
             }
             let db = try Database(path: databasePath)
-            let rules = try db.executionRules(folderID: folder.id, isPro: false)
+            let rules = try db.executionRules(folderID: folder.id)
             #expect(rules.first?.actions == rule.actions)
             let entries = RuleEngine.walkEntries(root: input, maxDepth: RuleEngine.maxRuleDepth(rules))
             if execution == "preview" {
                 let previews = entries.compactMap {
-                    RuleEngine.previewFile(path: $0.path, depth: $0.depth, rules: rules, root: input, isPro: false)
+                    RuleEngine.previewFile(path: $0.path, depth: $0.depth, rules: rules, root: input)
                 }
                 let preview = try #require(previews.first)
                 #expect(previews.count == 1)
@@ -79,7 +79,7 @@ import Testing
             } else {
                 if execution == "manual" {
                     let history = entries.flatMap {
-                        RuleEngine.run(path: $0.path, depth: $0.depth, rules: rules, batchId: "manual", root: input, isPro: false).history
+                        RuleEngine.run(path: $0.path, depth: $0.depth, rules: rules, batchId: "manual", root: input).history
                     }
                     try db.insertHistoryEntries(history)
                 } else {
@@ -96,7 +96,7 @@ import Testing
                 #expect(try state(kind, path: path) == target)
                 #expect(UndoChecker.evaluate(entry) == .safe)
                 // A repeated run sets the requested state rather than flipping it.
-                let repeated = RuleEngine.run(path: path, depth: 0, rules: rules, batchId: "repeat", root: input, isPro: false)
+                let repeated = RuleEngine.run(path: path, depth: 0, rules: rules, batchId: "repeat", root: input)
                 #expect(repeated.history.map(\.status) == [.skipped])
                 #expect(try state(kind, path: path) == target)
                 try ActionExecutor.revert(Undo.fromJSON(entry.undo))

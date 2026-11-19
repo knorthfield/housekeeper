@@ -338,16 +338,16 @@ import Foundation
         rule.conditions = [makeCondition(.extension_, .is, "pdf", ruleId: rule.id)]
         rule.actions = [makeAction(.moveToFolder, .object(["destination": .string(destination)]), ruleId: rule.id)]
         try db.insertRule(rule)
-        let rules = try db.executionRules(folderID: folder.id, isPro: false)
+        let rules = try db.executionRules(folderID: folder.id)
 
         if execution == "preview" || execution == "manual" {
             let entries = RuleEngine.walkEntries(root: watched, maxDepth: RuleEngine.maxRuleDepth(rules))
             #expect(entries.map(\.path) == [link])
             for entry in entries {
                 if execution == "preview" {
-                    #expect(RuleEngine.previewFile(path: entry.path, depth: entry.depth, rules: rules, isPro: false) == nil)
+                    #expect(RuleEngine.previewFile(path: entry.path, depth: entry.depth, rules: rules) == nil)
                 } else {
-                    let result = RuleEngine.run(path: entry.path, depth: entry.depth, rules: rules, batchId: "manual", root: watched, isPro: false)
+                    let result = RuleEngine.run(path: entry.path, depth: entry.depth, rules: rules, batchId: "manual", root: watched)
                     #expect(result.history.isEmpty)
                 }
             }

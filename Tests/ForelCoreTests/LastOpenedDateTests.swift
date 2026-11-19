@@ -91,12 +91,12 @@ import Testing
             try saved.insertRule(rule)
         }
         let db = try Database(path: databasePath)
-        let rules = try db.executionRules(folderID: folder.id, isPro: false)
+        let rules = try db.executionRules(folderID: folder.id)
         #expect(rules.first?.conditions == rule.conditions)
         #expect(RuleValidator.validate(rules[0].conditions).isEmpty)
         let entries = RuleEngine.walkEntries(root: input, maxDepth: RuleEngine.maxRuleDepth(rules))
         if execution == "preview" {
-            let matches = entries.compactMap { RuleEngine.previewFile(path: $0.path, depth: $0.depth, rules: rules, root: input, isPro: false) }
+            let matches = entries.compactMap { RuleEngine.previewFile(path: $0.path, depth: $0.depth, rules: rules, root: input) }
             try #require(matches.count == 1)
             #expect(matches[0].path == expected)
             #expect(matches[0].rules[0].conditions[0].kind == .dateLastOpened)
@@ -106,7 +106,7 @@ import Testing
         } else {
             let history: [HistoryEntry]
             if execution == "manual" {
-                history = entries.flatMap { RuleEngine.run(path: $0.path, depth: $0.depth, rules: rules, batchId: "manual", root: input, isPro: false).history }
+                history = entries.flatMap { RuleEngine.run(path: $0.path, depth: $0.depth, rules: rules, batchId: "manual", root: input).history }
             } else {
                 let coordinator = WatcherCoordinator(db: db, settleInterval: 0.01)
                 for entry in entries { coordinator.enqueue(event: .pathArrived(entry.path)) }

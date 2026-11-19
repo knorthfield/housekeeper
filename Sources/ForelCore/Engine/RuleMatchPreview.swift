@@ -52,7 +52,6 @@ extension RuleEngine {
     public static func previewMatches(
         of rule: Rule,
         root: String,
-        isPro: Bool,
         scanLimit: Int = 5_000,
         keep: Int = 50,
         isCancelled: () -> Bool = { false }
@@ -66,7 +65,7 @@ extension RuleEngine {
                 return false
             }
             summary.checked += 1
-            guard let preview = previewFile(path: entry.path, depth: entry.depth, rules: [draft], root: root, isPro: isPro),
+            guard let preview = previewFile(path: entry.path, depth: entry.depth, rules: [draft], root: root),
                   let rulePreview = preview.rules.first(where: { $0.ruleId == draft.id }) else {
                 return true
             }

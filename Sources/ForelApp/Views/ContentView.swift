@@ -45,13 +45,6 @@ struct ContentView: View {
                     }
                 }
             }
-            .overlay(alignment: .bottomTrailing) {
-                if !model.isPro, model.editingRule == nil {
-                    Button("Discover Pro") { model.proUpgrade = .folders }
-                        .buttonStyle(.link)
-                        .padding(16)
-                }
-            }
             // One toggle, always at the start of the window's own title bar:
             // beside the sidebar when shown, beside the window controls when not.
             .toolbar {
@@ -75,9 +68,6 @@ struct ContentView: View {
             Button("Keep Editing", role: .cancel) { model.pendingNavigation = nil }
         } message: { _ in
             Text(unsavedRuleMessage)
-        }
-        .sheet(item: $model.proUpgrade) { context in
-            ProUpgradeView(context: context)
         }
         // ForelTheme.accent is a plain static var, not observable; bumping the
         // identity here forces every descendant to rebuild and re-read it.

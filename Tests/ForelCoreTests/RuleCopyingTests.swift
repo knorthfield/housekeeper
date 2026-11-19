@@ -35,7 +35,7 @@ import Testing
             originals = try db.listRules(folderId: source.id)
             try db.insertRule(makeRule(folderId: destination.id, name: originals[0].name))
             copiedRules = try db.copyRules(
-                [originals[2].id, originals[0].id], fromFolderID: source.id, toFolderID: destination.id, isPro: false
+                [originals[2].id, originals[0].id], fromFolderID: source.id, toFolderID: destination.id
             )
             let selected = [originals[0], originals[2]]
             #expect(copiedRules.map(\.name) == selected.map(\.name))
@@ -75,7 +75,7 @@ import Testing
         #expect(try reopened.listRules(folderId: destination.id).dropFirst().map { $0 } == [edited, copiedRules[1]])
     }
 
-    @Test func freeRestrictionsAndFailuresNeverLeavePartialCopies() throws {
+    @Test func failuresNeverLeavePartialCopies() throws {
         let dir = TempDir()
         let db = try Database(path: ":memory:")
         let folders = (0..<3).map { WatchedFolder(path: dir.dir("Folder\($0)")) }
@@ -87,38 +87,30 @@ import Testing
         try db.insertRule(paid)
         let selection: Set<String> = [normal.id, paid.id]
 
-        #expect(throws: FreePlanError.proFolder) {
-            try db.copyRules([normal.id], fromFolderID: folders[0].id, toFolderID: folders[2].id, isPro: false)
-        }
-        #expect(throws: FreePlanError.feature(.libraryImports)) {
-            try db.copyRules(selection, fromFolderID: folders[0].id, toFolderID: folders[1].id, isPro: false)
-        }
-        #expect(try db.listRules(folderId: folders[1].id).isEmpty)
         #expect(throws: RuleCopyError.self) {
-            try db.copyRules([normal.id, "missing-rule"], fromFolderID: folders[0].id, toFolderID: folders[1].id, isPro: true)
+            try db.copyRules([normal.id, "missing-rule"], fromFolderID: folders[0].id, toFolderID: folders[1].id)
         }
         #expect(throws: RuleCopyError.self) {
-            try db.copyRules([normal.id], fromFolderID: folders[0].id, toFolderID: "removed-folder", isPro: true)
+            try db.copyRules([normal.id], fromFolderID: folders[0].id, toFolderID: "removed-folder")
         }
         #expect(throws: RuleCopyError.self) {
-            try db.copyRules([normal.id], fromFolderID: folders[0].id, toFolderID: folders[0].id, isPro: true)
+            try db.copyRules([normal.id], fromFolderID: folders[0].id, toFolderID: folders[0].id)
         }
         #expect(throws: RuleCopyError.self) {
-            try db.copyRules([], fromFolderID: folders[0].id, toFolderID: folders[1].id, isPro: true)
+            try db.copyRules([], fromFolderID: folders[0].id, toFolderID: folders[1].id)
         }
         #expect(try db.listRules(folderId: folders[1].id).isEmpty)
         #expect(try db.listRules(folderId: folders[2].id).isEmpty)
 
-        // Pro can copy enabled premium rules, including to the third folder.
-        let proCopies = try db.copyRules(selection, fromFolderID: folders[0].id, toFolderID: folders[2].id, isPro: true)
+        // Library import rules copy enabled, including to a third folder.
+        let proCopies = try db.copyRules(selection, fromFolderID: folders[0].id, toFolderID: folders[2].id)
         #expect(proCopies.count == 2)
         #expect(proCopies.allSatisfy { $0.enabled })
-        // Free may recover ordinary rules from a folder retained after Pro.
-        let recovered = try db.copyRules([proCopies[0].id], fromFolderID: folders[2].id, toFolderID: folders[1].id, isPro: false)
+        let recovered = try db.copyRules([proCopies[0].id], fromFolderID: folders[2].id, toFolderID: folders[1].id)
         #expect(recovered.first?.name == normal.name)
         paid.enabled = false
         try db.updateRule(paid)
-        let disabledCopy = try db.copyRules([paid.id], fromFolderID: folders[0].id, toFolderID: folders[1].id, isPro: false)
+        let disabledCopy = try db.copyRules([paid.id], fromFolderID: folders[0].id, toFolderID: folders[1].id)
         #expect(disabledCopy.first?.enabled == false)
         #expect(disabledCopy.first?.actions.first?.kind == .importToLibrary)
     }
@@ -142,13 +134,13 @@ import Testing
         move.actions = [makeAction(.moveToFolder, .object([ActionParam.destination: .string(archive)]), ruleId: move.id)]
         try db.insertRule(rename)
         try db.insertRule(move)
-        let copies = try db.copyRules([move.id, rename.id], fromFolderID: source.id, toFolderID: destination.id, isPro: false)
+        let copies = try db.copyRules([move.id, rename.id], fromFolderID: source.id, toFolderID: destination.id)
         #expect(FileManager.default.fileExists(atPath: file))
         #expect(try db.listHistory().isEmpty)
-        let rules = try db.executionRules(folderID: destination.id, isPro: false)
+        let rules = try db.executionRules(folderID: destination.id)
         let resultPath = archive + "/processed-report.txt"
         if execution == "preview" {
-            let preview = try #require(RuleEngine.previewFile(path: file, depth: 1, rules: rules, isPro: false))
+            let preview = try #require(RuleEngine.previewFile(path: file, depth: 1, rules: rules))
             #expect(preview.rules.map(\.ruleId) == copies.map(\.id))
             #expect(preview.rules.last?.actions.last?.targetPath == resultPath)
             #expect(FileManager.default.fileExists(atPath: file))
@@ -157,7 +149,7 @@ import Testing
             let history: [HistoryEntry]
             if execution == "manual" {
                 history = RuleEngine.walkEntries(root: destination.path, maxDepth: 1).flatMap { entry in
-                    RuleEngine.run(path: entry.path, depth: entry.depth, rules: rules, batchId: "manual", root: destination.path, isPro: false).history
+                    RuleEngine.run(path: entry.path, depth: entry.depth, rules: rules, batchId: "manual", root: destination.path).history
                 }
             } else {
                 let watcher = WatcherCoordinator(db: db, settleInterval: 0.01)

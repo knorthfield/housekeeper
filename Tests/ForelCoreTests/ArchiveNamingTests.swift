@@ -61,7 +61,7 @@ import Testing
         }
         let db = try Database(path: databasePath)
         #expect(try db.listRules(folderId: folder.id).first?.actions == rule.actions)
-        let rules = try db.executionRules(folderID: folder.id, isPro: false)
+        let rules = try db.executionRules(folderID: folder.id)
         #expect(RuleValidator.validate(rules[0].actions).isEmpty)
         if execution == "watcher" {
             let coordinator = WatcherCoordinator(db: db, settleInterval: 0.01)
@@ -75,14 +75,14 @@ import Testing
             let entries = RuleEngine.walkEntries(root: watched, maxDepth: RuleEngine.maxRuleDepth(rules))
             for entry in entries {
                 if execution == "preview" {
-                    let preview = RuleEngine.previewFile(path: entry.path, depth: entry.depth, rules: rules, isPro: false)
+                    let preview = RuleEngine.previewFile(path: entry.path, depth: entry.depth, rules: rules)
                     if entry.path == source {
                         #expect(preview?.rules.first?.actions.first?.targetPath == expected)
                     } else {
                         #expect(preview == nil)
                     }
                 } else {
-                    let result = RuleEngine.run(path: entry.path, depth: entry.depth, rules: rules, batchId: "manual", root: watched, isPro: false)
+                    let result = RuleEngine.run(path: entry.path, depth: entry.depth, rules: rules, batchId: "manual", root: watched)
                     if entry.path == source {
                         #expect(result.history.count == 1)
                         #expect(result.history.first?.status == .applied)

@@ -300,7 +300,7 @@ extension RuleEngine {
         }
     }
 
-    public static func previewSyncRemovals(rules: [Rule], root: String, path: String, isPro: Bool) -> [FilePreview] {
+    public static func previewSyncRemovals(rules: [Rule], root: String, path: String) -> [FilePreview] {
         var previews: [FilePreview] = []
         for (rule, action) in syncActions(rules) {
             let policy = ActionExecutor.syncDeletePolicy(action)
@@ -309,7 +309,7 @@ extension RuleEngine {
                 : "Move to Trash, removed from the watched folder"
             let items: [String]
             do {
-                items = try syncRemovals(rule: rule, action: action, root: root, path: path, allowOCR: isPro)
+                items = try syncRemovals(rule: rule, action: action, root: root, path: path)
             } catch {
                 previews.append(FilePreview(path: path, name: (path as NSString).lastPathComponent, rules: [
                     RulePreview(ruleId: rule.id, ruleName: rule.name, conditions: [], actions: [
@@ -329,7 +329,7 @@ extension RuleEngine {
         return previews
     }
 
-    public static func runSyncRemovals(rules: [Rule], root: String, path: String, batchId: String, isPro: Bool) -> [HistoryEntry] {
+    public static func runSyncRemovals(rules: [Rule], root: String, path: String, batchId: String) -> [HistoryEntry] {
         var history: [HistoryEntry] = []
         for (rule, action) in syncActions(rules) {
             func entry(_ originalPath: String, _ resultPath: String, undo: Undo = .none,
@@ -342,7 +342,7 @@ extension RuleEngine {
             }
             let items: [String]
             do {
-                items = try syncRemovals(rule: rule, action: action, root: root, path: path, allowOCR: isPro)
+                items = try syncRemovals(rule: rule, action: action, root: root, path: path)
             } catch {
                 history.append(entry(path, path, status: .failed, message: String(describing: error)))
                 continue
@@ -380,7 +380,7 @@ extension RuleEngine {
     /// when it no longer exists, otherwise anywhere below it. A copy goes
     /// only if Forel made it and the rule still covers it; a folder goes as
     /// one item only when everything in it does.
-    private static func syncRemovals(rule: Rule, action: Action, root: String, path: String, allowOCR: Bool) throws -> [String] {
+    private static func syncRemovals(rule: Rule, action: Action, root: String, path: String) throws -> [String] {
         // The watched folder itself gone (renamed, moved to the Trash, its
         // disk ejected) is not a deletion inside it: the mirror stays.
         guard FileManager.default.fileExists(atPath: root),
@@ -437,7 +437,7 @@ extension RuleEngine {
             }
             if whole, ActionExecutor.isSyncCopy(item, of: ActionExecutor.syncSourcePath(root: root, path: source)),
                let depth = pathDepth(root: targetRoot, path: item),
-               ruleMatches(rule, path: item, depth: depth, allowOCR: allowOCR) {
+               ruleMatches(rule, path: item, depth: depth) {
                 return true
             }
             removals += removable

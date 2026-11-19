@@ -547,9 +547,14 @@ public final class Database: @unchecked Sendable {
         for action in rule.actions { try insertAction(action) }
     }
 
+    /// The rules of a folder that can run now.
+    public func executionRules(folderID: String) throws -> [Rule] {
+        try listRules(folderId: folderID).filter { $0.enabled && $0.isSupported }
+    }
+
     /// Copies the current saved rules in their source order, appending them to
     /// the destination. New identities keep edits, deletion, and history separate.
-    public func copyRules(_ ruleIDs: Set<String>, fromFolderID: String, toFolderID: String, isPro: Bool) throws -> [Rule] {
+    public func copyRules(_ ruleIDs: Set<String>, fromFolderID: String, toFolderID: String) throws -> [Rule] {
         guard !ruleIDs.isEmpty else { throw RuleCopyError.noSelection }
         guard fromFolderID != toFolderID else { throw RuleCopyError.sameFolder }
         var copies: [Rule] = []
@@ -557,14 +562,10 @@ public final class Database: @unchecked Sendable {
             let folders = try listFolders()
             guard folders.contains(where: { $0.id == fromFolderID }),
                   folders.contains(where: { $0.id == toFolderID }) else { throw RuleCopyError.missingFolder }
-            guard FreePlan.allows(folderID: toFolderID, folders: folders, isPro: isPro) else {
-                throw FreePlanError.proFolder
-            }
             let sources = try listRules(folderId: fromFolderID).filter { ruleIDs.contains($0.id) }
             guard sources.count == ruleIDs.count else { throw RuleCopyError.missingRules }
             for source in sources {
                 guard source.isSupported else { throw UnsupportedRuleError() }
-                try FreePlan.validate(source, isPro: isPro)
                 var copy = Rule(
                     folderId: toFolderID, name: source.name, enabled: source.enabled,
                     conditionMatch: source.conditionMatch, recursionDepth: source.recursionDepth,

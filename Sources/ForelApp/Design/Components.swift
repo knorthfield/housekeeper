@@ -85,62 +85,6 @@ struct GlassCard<Content: View>: View {
     }
 }
 
-/// Prominent banner shown in the quick panel when a new version is
-/// available — filled orange surface so it reads at a glance instead of
-/// blending in with the neutral glass cards around it.
-struct UpdateAvailableBanner: View {
-    let version: String?
-    let isInstalling: Bool
-    let action: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle().fill(Color.white.opacity(0.22))
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 26, height: 26)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Update available")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                Text(version.map { "Version \($0)" } ?? "New version available")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .layoutPriority(1)
-
-            Spacer(minLength: 6)
-
-            Button(isInstalling ? "Installing…" : "Download", action: action)
-                .buttonStyle(.plain)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Color.orange)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Capsule().fill(.white))
-                .disabled(isInstalling)
-                .opacity(isInstalling ? 0.7 : 1)
-        }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(LinearGradient(colors: [Color.orange, Color.orange.opacity(0.85)], startPoint: .topLeading, endPoint: .bottomTrailing))
-        )
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.25)))
-    }
-}
-
 /// A title/subtitle row with a trailing switch, e.g. "Watching".
 struct ToggleRow: View {
     let title: String
@@ -198,37 +142,29 @@ struct ForelSwitch: View {
 struct QuickFolderRow: View {
     let folder: WatchedFolder
     @Binding var isOn: Bool
-    var isBlocked = false
 
     var body: some View {
         HStack(spacing: 10) {
             ZStack {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(isBlocked ? ForelTheme.secondaryText.opacity(0.08) : ForelTheme.accent.opacity(0.18))
+                    .fill(ForelTheme.accent.opacity(0.18))
                 Image(systemName: "folder.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(isBlocked ? ForelTheme.secondaryText : ForelTheme.accent)
+                    .foregroundStyle(ForelTheme.accent)
             }
             .frame(width: 26, height: 26)
 
             Text((folder.path as NSString).lastPathComponent)
                 .font(.system(size: 13))
-                .foregroundStyle(isBlocked ? ForelTheme.secondaryText : ForelTheme.primaryText)
+                .foregroundStyle(ForelTheme.primaryText)
                 .lineLimit(1)
 
             Spacer()
-            if isBlocked {
-                Label("Pro", systemImage: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(ForelTheme.pro)
-            }
-            ForelSwitch(isOn: isBlocked ? .constant(false) : $isOn, compact: true)
-                .disabled(isBlocked)
-                .opacity(isBlocked ? 0.5 : 1)
+            ForelSwitch(isOn: $isOn, compact: true)
         }
         .padding(.vertical, 7)
         .padding(.horizontal, 14)
-        .help(isBlocked ? "Reorder folders or activate Pro to use this folder." : folder.path)
+        .help(folder.path)
     }
 }
 

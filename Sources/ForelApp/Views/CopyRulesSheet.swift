@@ -5,7 +5,6 @@ struct CopyRulesSheet: View {
     let ruleCount: Int
     let sourceFolderID: String
     let folders: [WatchedFolder]
-    let isPro: Bool
     let onCopy: (String) throws -> Void
     let onCancel: () -> Void
     @State private var destinationFolderID = ""
@@ -15,12 +14,8 @@ struct CopyRulesSheet: View {
         folders.filter { $0.id != sourceFolderID }
     }
 
-    private func isAllowed(_ folder: WatchedFolder) -> Bool {
-        FreePlan.allows(folderID: folder.id, folders: folders, isPro: isPro)
-    }
-
     private var canCopy: Bool {
-        destinations.contains { $0.id == destinationFolderID && isAllowed($0) }
+        destinations.contains { $0.id == destinationFolderID }
     }
 
     var body: some View {
@@ -38,18 +33,10 @@ struct CopyRulesSheet: View {
                 Picker("Destination", selection: $destinationFolderID) {
                     Text("Choose a folder").tag("")
                     ForEach(destinations, id: \.id) { folder in
-                        Text(isAllowed(folder) ? folder.path : "\(folder.path) — Pro")
-                            .tag(folder.id)
-                            .disabled(!isAllowed(folder))
+                        Text(folder.path).tag(folder.id)
                     }
                 }
                 .pickerStyle(.menu)
-
-                if !destinations.contains(where: isAllowed) {
-                    Text("Reorder your watched folders or activate Pro to use these destinations.")
-                        .font(.callout)
-                        .foregroundStyle(ForelTheme.secondaryText)
-                }
             }
 
             Text("Copies are independent and keep their conditions, actions, and enabled state. Action destinations stay unchanged.")
@@ -83,7 +70,7 @@ struct CopyRulesSheet: View {
         .frame(width: 520)
         .background(ForelTheme.background)
         .onAppear {
-            destinationFolderID = destinations.first(where: isAllowed)?.id ?? ""
+            destinationFolderID = destinations.first?.id ?? ""
         }
     }
 }

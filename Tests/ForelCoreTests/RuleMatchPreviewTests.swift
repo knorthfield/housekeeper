@@ -20,7 +20,7 @@ import Testing
         _ = dir.file("Input/c.PDF", contents: "c")
         let rule = pdfRule(folderId: "folder", destination: archive)
 
-        let summary = RuleEngine.previewMatches(of: rule, root: input, isPro: true)
+        let summary = RuleEngine.previewMatches(of: rule, root: input)
 
         #expect(summary.isComplete)
         #expect(summary.checked == 3)
@@ -37,9 +37,9 @@ import Testing
         let input = dir.dir("Input")
         let path = dir.file("Input/a.pdf", contents: "a")
         var rule = pdfRule(folderId: "folder", destination: dir.path + "/Archive")
-        let summary = RuleEngine.previewMatches(of: rule, root: input, isPro: true)
+        let summary = RuleEngine.previewMatches(of: rule, root: input)
         rule.enabled = true
-        let dryRun = try #require(RuleEngine.previewFile(path: path, depth: 0, rules: [rule], root: input, isPro: true))
+        let dryRun = try #require(RuleEngine.previewFile(path: path, depth: 0, rules: [rule], root: input))
         #expect(summary.matches.first?.action == dryRun.rules.first?.actions.first?.description)
     }
 
@@ -49,7 +49,7 @@ import Testing
         for index in 0..<30 { _ = dir.file("Input/\(String(format: "%02d", index)).pdf", contents: "x") }
         let rule = pdfRule(folderId: "folder", destination: dir.path + "/Archive")
 
-        let summary = RuleEngine.previewMatches(of: rule, root: input, isPro: true, scanLimit: 10, keep: 4)
+        let summary = RuleEngine.previewMatches(of: rule, root: input, scanLimit: 10, keep: 4)
 
         #expect(!summary.isComplete)
         #expect(summary.checked == 10)
@@ -64,7 +64,7 @@ import Testing
         let rule = pdfRule(folderId: "folder", destination: dir.path + "/Archive")
         var calls = 0
 
-        let summary = RuleEngine.previewMatches(of: rule, root: input, isPro: true) {
+        let summary = RuleEngine.previewMatches(of: rule, root: input) {
             calls += 1
             return calls > 2
         }

@@ -21,27 +21,21 @@ import ForelCore
 struct ForelMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var model: AppModel
-    @StateObject private var updater: UpdaterManager
 
     init() {
         let model = try! AppModel()
         _model = StateObject(wrappedValue: model)
-        let updater = UpdaterManager(db: model.db)
-        _updater = StateObject(wrappedValue: updater)
-        AppDelegate.launchContext = (model, updater)
+        AppDelegate.launchContext = model
     }
 
     var body: some Scene {
         WindowGroup("Forel") {
             ContentView()
                 .environmentObject(model)
-                .environmentObject(updater)
-                .environmentObject(appDelegate.license)
-                .environmentObject(appDelegate.settingsNavigation)
                 .frame(minWidth: 960, minHeight: 520)
                 .background(WindowAccessor { appDelegate.mainWindowDidAttach($0) })
                 .onAppear {
-                    appDelegate.configure(model: model, updater: updater)
+                    appDelegate.configure(model: model)
                 }
         }
         .windowResizability(.contentSize)
@@ -76,9 +70,6 @@ struct ForelMacApp: App {
         Settings {
             SettingsView()
                 .environmentObject(model)
-                .environmentObject(updater)
-                .environmentObject(appDelegate.license)
-                .environmentObject(appDelegate.settingsNavigation)
         }
         .windowResizability(.contentSize)
     }

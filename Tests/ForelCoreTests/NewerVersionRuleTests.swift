@@ -54,7 +54,7 @@ import Foundation
         // Dry Run and Run Now, even if handed the rule directly.
         #expect(RuleEngine.previewFile(path: setup.file, depth: 0, rules: rules) == nil)
         #expect(RuleEngine.run(path: setup.file, depth: 0, rules: rules, batchId: "b").history.isEmpty)
-        #expect(try setup.db.executionRules(folderID: setup.folder.id, isPro: true).isEmpty)
+        #expect(try setup.db.executionRules(folderID: setup.folder.id).isEmpty)
 
         // Automatic watching.
         let coordinator = WatcherCoordinator(db: setup.db, settleInterval: 0.05)
@@ -78,7 +78,7 @@ import Foundation
         loaded.name = "renamed"
         #expect(throws: UnsupportedRuleError.self) { try setup.db.updateRule(loaded) }
         #expect(throws: UnsupportedRuleError.self) {
-            try setup.db.copyRules([setup.rule.id], fromFolderID: setup.folder.id, toFolderID: other.id, isPro: true)
+            try setup.db.copyRules([setup.rule.id], fromFolderID: setup.folder.id, toFolderID: other.id)
         }
         // Turning it off and on only touches the rule's own switch.
         try setup.db.toggleRule(setup.rule.id, enabled: false)
