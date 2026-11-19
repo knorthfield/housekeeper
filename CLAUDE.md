@@ -39,7 +39,7 @@ housekeeper/
 
 ## App structure
 
-- `Sources/HousekeeperApp` contains the SwiftUI app, windows, views, and menu bar code.
+- `Sources/HousekeeperApp` contains the SwiftUI app, windows and views.
 - `Sources/HousekeeperCore` contains models, persistence, watcher, and rule engine logic.
 - `Tests/HousekeeperCoreTests` contains the core unit tests. Add or update tests with behavior changes.
 

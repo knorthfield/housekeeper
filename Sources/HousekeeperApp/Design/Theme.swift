@@ -17,7 +17,7 @@
 import SwiftUI
 import AppKit
 
-/// Glass palette for the menu-bar quick panel and main window. Colours are
+/// Glass palette for the app's windows. Colours are
 /// dynamic so the user's Light/Dark/System setting can drive every view.
 @MainActor
 enum HousekeeperTheme {

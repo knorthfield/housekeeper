@@ -18,10 +18,8 @@ import Foundation
 import HousekeeperCore
 import Combine
 import AppKit
-import UserNotifications
 
 private let historyCleanupInterval: TimeInterval = 3600
-private let watcherNotificationDelay: Duration = .seconds(5)
 
 /// Central observable state for the SwiftUI app: owns the database, the
 /// watcher coordinator, and the in-memory view of folders/rules. Mirrors the
@@ -69,8 +67,6 @@ final class AppModel: ObservableObject {
         let perform: () -> Void
     }
     @Published var accentPreset: AccentPreset = .default
-    @Published var showDockIcon: Bool = true
-    @Published var watcherNotificationsEnabled: Bool = true
     @Published var historyMaxDays: Int = 30
     /// Bumped whenever the accent colour changes, so views can force a full
     /// re-render with `.id(model.accentVersion)` — `HousekeeperTheme.accent` is a
@@ -94,10 +90,6 @@ final class AppModel: ObservableObject {
     private let previewMatchLimit = 500
     private let ruleRunStatsWindowDays = 30
     private var historyCleanupTimer: AnyCancellable?
-    private var pendingWatcherNotification = PendingWatcherNotification()
-    private var watcherNotificationTask: Task<Void, Never>?
-    private var volumeNotifier = VolumeUnavailableNotifier()
-    private var volumeNotificationTask: Task<Void, Never>?
     private var volumeMountObserver: NSObjectProtocol?
     /// Bumped when automatic runs record history, for views showing recent
     /// activity. A burst of files makes one bump, not one per file.
@@ -113,16 +105,6 @@ final class AppModel: ObservableObject {
         let db = try Database(path: dbPath)
         self.db = db
         self.coordinator = WatcherCoordinator(db: db)
-        self.coordinator.onActivity = { [weak self] summary in
-            Task { @MainActor in
-                self?.queueWatcherNotification(summary)
-            }
-        }
-        self.coordinator.onVolumeUnavailable = { [weak self] event in
-            Task { @MainActor in
-                self?.queueVolumeNotification(event)
-            }
-        }
         self.coordinator.onHistoryRecorded = { [weak self] in
             Task { @MainActor in
                 self?.bumpWatcherHistoryRevision()
@@ -143,12 +125,6 @@ final class AppModel: ObservableObject {
         let preset = storedAccent.flatMap(AccentPreset.init(rawValue:)) ?? .default
         self.accentPreset = preset
         HousekeeperTheme.apply(preset)
-
-        let storedShowDockIcon = db.withLock { db in try? db.getSetting("show_dock_icon") }
-        self.showDockIcon = storedShowDockIcon.map { $0 == "1" } ?? true
-
-        let storedWatcherNotificationsEnabled = db.withLock { db in try? db.getSetting("watcher_notifications_enabled") }
-        self.watcherNotificationsEnabled = storedWatcherNotificationsEnabled.map { $0 == "1" } ?? true
 
         let storedMaxDays = db.withLock { db in (try? db.getSetting("history_max_days")).flatMap { Int($0) } }
         self.historyMaxDays = min(max(storedMaxDays ?? 30, 1), 30)
@@ -185,60 +161,7 @@ final class AppModel: ObservableObject {
     }
 
     private func volumeDidMount(atPath mountPoint: String) {
-        volumeNotifier.volumeConnected((mountPoint as NSString).lastPathComponent)
         coordinator.volumeDidMount(atPath: mountPoint)
-    }
-
-    func applyDockIconPreference(keepingWindowsVisible: Bool = false) {
-        let visibleWindows = NSApp.windows.filter { window in
-            window.isVisible && !(window is NSPanel)
-        }
-        let keyWindow = NSApp.keyWindow
-
-        NSApp.setActivationPolicy(showDockIcon ? .regular : .accessory)
-
-        guard keepingWindowsVisible else { return }
-
-        let windowsToRestore = visibleWindows.isEmpty
-            ? NSApp.windows.filter { !($0 is NSPanel) }
-            : visibleWindows
-
-        let restoreWindows = {
-            for window in windowsToRestore {
-                window.makeKeyAndOrderFront(nil)
-                window.orderFrontRegardless()
-            }
-            keyWindow?.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-        }
-
-        restoreWindows()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            for window in windowsToRestore {
-                window.makeKeyAndOrderFront(nil)
-                window.orderFrontRegardless()
-            }
-            keyWindow?.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-        }
-    }
-
-    func setShowDockIcon(_ enabled: Bool) {
-        showDockIcon = enabled
-        db.withLock { db in try? db.setSetting("show_dock_icon", enabled ? "1" : "0") }
-        applyDockIconPreference(keepingWindowsVisible: true)
-    }
-
-    func setWatcherNotificationsEnabled(_ enabled: Bool) {
-        watcherNotificationsEnabled = enabled
-        db.withLock { db in try? db.setSetting("watcher_notifications_enabled", enabled ? "1" : "0") }
-        guard !enabled else { return }
-        watcherNotificationTask?.cancel()
-        watcherNotificationTask = nil
-        pendingWatcherNotification = PendingWatcherNotification()
-        volumeNotificationTask?.cancel()
-        volumeNotificationTask = nil
-        volumeNotifier.discardPending()
     }
 
     func setAccentPreset(_ preset: AccentPreset) {
@@ -270,63 +193,6 @@ final class AppModel: ObservableObject {
             .autoconnect()
             .sink { [weak self] _ in self?.runHistoryCleanup() }
         runHistoryCleanup()
-    }
-
-    private func queueWatcherNotification(_ summary: WatcherActivitySummary) {
-        guard watcherNotificationsEnabled else { return }
-        pendingWatcherNotification.add(summary)
-        guard watcherNotificationTask == nil else { return }
-        watcherNotificationTask = Task { [weak self] in
-            try? await Task.sleep(for: watcherNotificationDelay)
-            await self?.flushWatcherNotification()
-        }
-    }
-
-    private func flushWatcherNotification() async {
-        watcherNotificationTask = nil
-        guard watcherNotificationsEnabled else {
-            pendingWatcherNotification = PendingWatcherNotification()
-            return
-        }
-        guard let notification = pendingWatcherNotification.makeNotification() else { return }
-        pendingWatcherNotification = PendingWatcherNotification()
-        await postNotification(title: notification.title, body: notification.body)
-    }
-
-    private func queueVolumeNotification(_ event: VolumeUnavailableEvent) {
-        guard watcherNotificationsEnabled, volumeNotifier.add(event) else { return }
-        guard volumeNotificationTask == nil else { return }
-        volumeNotificationTask = Task { [weak self] in
-            try? await Task.sleep(for: watcherNotificationDelay)
-            await self?.flushVolumeNotification()
-        }
-    }
-
-    private func flushVolumeNotification() async {
-        volumeNotificationTask = nil
-        guard watcherNotificationsEnabled, let notification = volumeNotifier.makeNotification() else { return }
-        await postNotification(title: notification.title, body: notification.body)
-    }
-
-    private func postNotification(title: String, body: String) async {
-        let center = UNUserNotificationCenter.current()
-        let settings = await center.notificationSettings()
-        if settings.authorizationStatus == .notDetermined {
-            _ = try? await center.requestAuthorization(options: [.alert, .sound])
-        }
-        guard (await center.notificationSettings()).authorizationStatus == .authorized else { return }
-
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-
-        let request = UNNotificationRequest(
-            identifier: "housekeeper-watcher-\(UUID().uuidString)",
-            content: content,
-            trigger: nil
-        )
-        try? await center.add(request)
     }
 
     func reloadFolders() {
@@ -822,47 +688,5 @@ final class AppModel: ObservableObject {
     private func showError(_ message: String) {
         alertTitle = "Error"
         errorMessage = message
-    }
-}
-
-private struct PendingWatcherNotification {
-    var actionCount = 0
-    var fileCount = 0
-    var ruleCounts: [String: Int] = [:]
-
-    mutating func add(_ summary: WatcherActivitySummary) {
-        actionCount += summary.actionCount
-        fileCount += summary.fileCount
-        for ruleName in summary.ruleNames {
-            ruleCounts[ruleName, default: 0] += 1
-        }
-    }
-
-    mutating func makeNotification() -> (title: String, body: String)? {
-        guard actionCount > 0 else { return nil }
-
-        let actionLabel = actionCount == 1 ? "action" : "actions"
-        let fileLabel = fileCount == 1 ? "file" : "files"
-        let title = "Housekeeper applied \(actionCount) \(actionLabel)"
-
-        let ruleNames = ruleCounts
-            .sorted { lhs, rhs in
-                lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value
-            }
-            .map(\.key)
-        let visibleRules = ruleNames.prefix(3)
-        let remainingRuleCount = max(0, ruleNames.count - visibleRules.count)
-        let rulesText: String
-        if visibleRules.isEmpty {
-            rulesText = "No rules"
-        } else {
-            rulesText = visibleRules.joined(separator: ", ")
-                + (remainingRuleCount > 0 ? " and \(remainingRuleCount) more" : "")
-        }
-
-        return (
-            title,
-            "\(fileCount) \(fileLabel) processed. Rules: \(rulesText)."
-        )
     }
 }

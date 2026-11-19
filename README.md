@@ -34,7 +34,6 @@ move Housekeeper to Applications. Housekeeper needs macOS 14 or later on an Appl
 - **Dry Run** shows what the rules will do before they do it. **Run Now** processes a folder
   by hand.
 - **History and undo** for moves, tags, labels and locks.
-- A menu bar panel with the watched folders and recent activity.
 
 Scripts run with `/bin/bash`, once for each file, with the path in `$HOUSEKEEPER_FILE`.
 

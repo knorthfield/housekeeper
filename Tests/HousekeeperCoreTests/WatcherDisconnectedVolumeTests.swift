@@ -18,28 +18,11 @@ import Testing
 import Foundation
 @testable import HousekeeperCore
 
-/// Automatic runs whose destination disk or share isn't connected: reported,
-/// then run again when it comes back (`WatcherCoordinator+DisconnectedVolumes`).
+/// Automatic runs whose destination disk or share isn't connected: run
+/// again when it comes back (`WatcherCoordinator+DisconnectedVolumes`).
 @Suite struct WatcherDisconnectedVolumeTests {
     private func makeDB() throws -> Database {
         try Database(path: ":memory:")
-    }
-
-    private final class VolumeEventBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var values: [VolumeUnavailableEvent] = []
-
-        func append(_ event: VolumeUnavailableEvent) {
-            lock.lock()
-            values.append(event)
-            lock.unlock()
-        }
-
-        func snapshot() -> [VolumeUnavailableEvent] {
-            lock.lock()
-            defer { lock.unlock() }
-            return values
-        }
     }
 
     /// A rule moving .txt files to a share under /Volumes that isn't mounted.
@@ -66,7 +49,7 @@ import Foundation
         try db.updateRule(connected)
     }
 
-    @Test func moveToADisconnectedShareIsReportedAndRunsAgainWhenItConnects() throws {
+    @Test func moveToADisconnectedShareRunsAgainWhenItConnects() throws {
         let db = try makeDB()
         let dir = TempDir()
         let file = dir.file("a.txt")
@@ -76,11 +59,8 @@ import Foundation
         try db.insertRule(rule)
 
         let coordinator = WatcherCoordinator(db: db)
-        let events = VolumeEventBox()
-        coordinator.onVolumeUnavailable = { events.append($0) }
 
         coordinator.handle(path: file)
-        #expect(events.snapshot() == [VolumeUnavailableEvent(volumes: [volume], ruleNames: ["to nas"], willRetry: true)])
         #expect(FileManager.default.fileExists(atPath: file))
         #expect(try db.listHistory().map(\.status) == [.failed])
 
@@ -117,15 +97,12 @@ import Foundation
         try db.insertRule(rule)
 
         let coordinator = WatcherCoordinator(db: db)
-        let events = VolumeEventBox()
-        coordinator.onVolumeUnavailable = { events.append($0) }
         coordinator.handle(path: file)
 
         // Retried, failed again: it keeps waiting for the next connection.
         coordinator.volumeDidMount(atPath: "/Volumes/\(volume)")
         coordinator.waitForPendingEvents()
         #expect(try db.listHistory().map(\.status) == [.failed, .failed])
-        #expect(events.snapshot().count == 2)
 
         let inbox = dir.dir("Inbox")
         try reconnect(rule, to: inbox, in: db)
@@ -147,11 +124,8 @@ import Foundation
         try db.insertRule(rule)
 
         let coordinator = WatcherCoordinator(db: db)
-        let events = VolumeEventBox()
-        coordinator.onVolumeUnavailable = { events.append($0) }
         coordinator.handle(path: file)
 
-        #expect(events.snapshot() == [VolumeUnavailableEvent(volumes: [volume], ruleNames: ["to nas"], willRetry: false)])
         try reconnect(rule, to: dir.dir("Inbox"), in: db)
         coordinator.volumeDidMount(atPath: "/Volumes/\(volume)")
         coordinator.waitForPendingEvents()
@@ -184,7 +158,7 @@ import Foundation
         #expect(try db.listHistory().count == 1)
     }
 
-    @Test func otherFailuresAreNotReportedAsADisconnectedShare() throws {
+    @Test func otherFailuresAreNotADisconnectedShare() throws {
         let db = try makeDB()
         let dir = TempDir()
         let file = dir.file("a.txt")
@@ -197,11 +171,10 @@ import Foundation
         try db.insertRule(rule)
 
         let coordinator = WatcherCoordinator(db: db)
-        let events = VolumeEventBox()
-        coordinator.onVolumeUnavailable = { events.append($0) }
         coordinator.handle(path: file)
 
-        #expect(try db.listHistory().map(\.status) == [.failed])
-        #expect(events.snapshot().isEmpty)
+        let history = try db.listHistory()
+        #expect(history.map(\.status) == [.failed])
+        #expect(WatcherCoordinator.disconnectedVolumes(in: history, rules: [rule]).isEmpty)
     }
 }

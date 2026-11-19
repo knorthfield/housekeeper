@@ -314,7 +314,7 @@ public final class Database: @unchecked Sendable {
     }
 
     /// Success ("applied"/"undone") vs. failed counts per rule over the last
-    /// `days` days, for the rule list's badges and the menu-bar quick panel.
+    /// `days` days, for the rule list's badges.
     public func ruleRunStats(sinceDays days: Int) throws -> [RuleRunStats] {
         let cutoff = ISO8601DateFormatter.housekeeperUTC.string(from: Date().addingTimeInterval(-Double(days) * 86400))
         let stmt = try statement(
@@ -463,13 +463,6 @@ public final class Database: @unchecked Sendable {
     }
 
     // MARK: - Rules
-
-    /// Total number of rules across every watched folder.
-    public func countRules() throws -> Int {
-        let stmt = try statement("SELECT COUNT(*) FROM rules")
-        _ = try stmt.step()
-        return Int(stmt.columnInt64(0))
-    }
 
     public func listRules(folderId: String) throws -> [Rule] {
         let stmt = try statement(

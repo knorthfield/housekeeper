@@ -303,7 +303,7 @@ public struct HistoryEntry: Codable, Equatable, Sendable {
 }
 
 /// Success ("applied"/"undone") vs. failed run counts for one rule over a
-/// time window, used by the rule list and the menu-bar quick panel.
+/// time window, used by the rule list.
 public struct RuleRunStats: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var ruleName: String

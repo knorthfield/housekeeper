@@ -101,18 +101,6 @@ struct SettingsView: View {
                     isOn: launchAtLoginBinding
                 )
                 Divider().overlay(HousekeeperTheme.divider).padding(.leading, 14)
-                ToggleRow(
-                    title: "Show Dock icon",
-                    subtitle: "Keep Housekeeper visible in the Dock while it runs",
-                    isOn: dockIconBinding
-                )
-                Divider().overlay(HousekeeperTheme.divider).padding(.leading, 14)
-                ToggleRow(
-                    title: "Watcher notifications",
-                    subtitle: "Notify when automatic rules process files",
-                    isOn: watcherNotificationsBinding
-                )
-                Divider().overlay(HousekeeperTheme.divider).padding(.leading, 14)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("Keep history for").font(.system(size: 13, weight: .semibold)).foregroundStyle(HousekeeperTheme.primaryText)
@@ -188,14 +176,6 @@ struct SettingsView: View {
             // saved and applies once running from a packaged build.
             LoginItem.setEnabled(enabled)
         })
-    }
-
-    private var dockIconBinding: Binding<Bool> {
-        Binding(get: { model.showDockIcon }, set: { model.setShowDockIcon($0) })
-    }
-
-    private var watcherNotificationsBinding: Binding<Bool> {
-        Binding(get: { model.watcherNotificationsEnabled }, set: { model.setWatcherNotificationsEnabled($0) })
     }
 
     private var watchingBinding: Binding<Bool> {

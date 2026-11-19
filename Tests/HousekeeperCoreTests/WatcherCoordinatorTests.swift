@@ -19,23 +19,6 @@ import Foundation
 @testable import HousekeeperCore
 
 @Suite struct WatcherCoordinatorTests {
-    private final class SummaryBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var values: [WatcherActivitySummary] = []
-
-        func append(_ summary: WatcherActivitySummary) {
-            lock.lock()
-            values.append(summary)
-            lock.unlock()
-        }
-
-        func snapshot() -> [WatcherActivitySummary] {
-            lock.lock()
-            defer { lock.unlock() }
-            return values
-        }
-    }
-
     private final class SignalCounter: @unchecked Sendable {
         private let lock = NSLock()
         private var value = 0
@@ -114,32 +97,7 @@ import Foundation
         #expect(try db.listHistory().count == files.count)
     }
 
-    @Test func watcherActivityReportsAppliedActionsOnly() throws {
-        let db = try makeDB()
-        let dir = TempDir()
-        let file = dir.file("a.txt")
-        let destination = dir.dir("Archive")
-        let folder = WatchedFolder(path: dir.path)
-        try db.insertFolder(folder)
-        var rule = makeRule(folderId: folder.id, name: "archive")
-        rule.conditions = [makeCondition(.extension_, .is, "txt", ruleId: rule.id)]
-        rule.actions = [makeAction(.moveToFolder, .object(["destination": .string(destination)]), position: 0, ruleId: rule.id)]
-        try db.insertRule(rule)
-
-        let coordinator = WatcherCoordinator(db: db)
-        let summaries = SummaryBox()
-        coordinator.onActivity = { summary in
-            summaries.append(summary)
-        }
-
-        coordinator.handle(path: file)
-
-        #expect(summaries.snapshot() == [
-            WatcherActivitySummary(actionCount: 1, fileCount: 1, ruleNames: ["archive"])
-        ])
-    }
-
-    @Test func watcherActivityDoesNotReportSkippedActions() throws {
+    @Test func moveToTheFolderTheFileIsAlreadyInIsRecordedAsSkipped() throws {
         let db = try makeDB()
         let dir = TempDir()
         let file = dir.file("a.txt")
@@ -151,14 +109,8 @@ import Foundation
         try db.insertRule(rule)
 
         let coordinator = WatcherCoordinator(db: db)
-        let summaries = SummaryBox()
-        coordinator.onActivity = { summary in
-            summaries.append(summary)
-        }
-
         coordinator.handle(path: file)
 
-        #expect(summaries.snapshot().isEmpty)
         #expect(try db.listHistory().count == 1)
         #expect(try db.listHistory()[0].status == .skipped)
     }

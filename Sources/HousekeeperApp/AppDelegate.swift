@@ -18,22 +18,21 @@ import AppKit
 import Combine
 import HousekeeperCore
 
-/// Closing the window hides it instead of quitting; Housekeeper keeps running in
-/// the menu bar. Quit is only available from the status item menu.
+/// Closing the window hides it instead of quitting, so Housekeeper keeps
+/// watching. A click on the Dock icon shows the window again.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    /// Set by `HousekeeperMacApp` as soon as the model exists, so the
-    /// menu bar icon can be created at launch instead of waiting for the main
-    /// window's `onAppear`: macOS doesn't open that window when it starts
-    /// Housekeeper as a login item, so `onAppear` only fires once the user opens it.
+    /// Set by `HousekeeperMacApp` as soon as the model exists, so the model is
+    /// available at launch instead of waiting for the main window's
+    /// `onAppear`: macOS doesn't open that window when it starts Housekeeper
+    /// as a login item, so `onAppear` only fires once the user opens it.
     static var launchContext: AppModel?
 
-    var statusBarController: StatusBarController?
     private var model: AppModel?
     /// The window hosting `ContentView`, reported by `HousekeeperMacApp` through
     /// `mainWindowDidAttach`. Tracked explicitly rather than looked up in
-    /// `NSApp.windows`, which also holds the menu bar item's own window and
-    /// the Settings window, in no useful order.
+    /// `NSApp.windows`, which also holds the Settings window, in no useful
+    /// order.
     private weak var mainWindow: NSWindow?
     /// The main window was asked for before it existed (Housekeeper started as a
     /// login item); bring it forward as soon as SwiftUI has created it.
@@ -45,8 +44,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// `launchContext` at launch, whichever comes first).
     func configure(model: AppModel) {
         self.model = model
-        model.applyDockIconPreference()
-        setUpStatusBar()
         showMainWindowOnFirstLaunch()
     }
 
@@ -59,15 +56,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.titleVisibility = .hidden
         if activatesMainWindowWhenAttached {
             activatesMainWindowWhenAttached = false
-            WindowActivation.activateSoon(window, showsDockIcon: model?.showDockIcon != false)
+            WindowActivation.activateSoon(window)
         }
     }
 
-    /// A brand-new install otherwise only shows up as a menu bar icon
-    /// (LSUIElement apps don't reliably get focus/visibility on launch),
-    /// so a first-time user could easily miss that Housekeeper is running at
-    /// all. Surface the main window once, on the rules home, so they land
-    /// somewhere they can see and start using right away.
+    /// Surface the main window once on a brand-new install, on the rules
+    /// home, so a first-time user lands somewhere they can see and start
+    /// using right away.
     private func showMainWindowOnFirstLaunch() {
         guard let model else { return }
         guard (try? model.db.getSetting("has_launched_before")) == nil else { return }
@@ -90,13 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if model == nil { model = Self.launchContext }
 
-        // The status item doesn't exist yet, so the only window there can be
-        // at this point is the main one.
+        // The only window there can be at this point is the main one.
         if mainWindow == nil, let window = NSApp.windows.first {
             mainWindowDidAttach(window)
         }
-        model?.applyDockIconPreference()
-        setUpStatusBar()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -113,14 +105,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return false
     }
 
-    private func setUpStatusBar() {
-        guard statusBarController == nil, let model else { return }
-        statusBarController = StatusBarController(
-            model: model,
-            onOpenMainWindow: { [weak self] in self?.openMainWindow() }
-        )
-    }
-
     private func openMainWindow() {
         guard let mainWindow else {
             // Started as a login item, Housekeeper has no main window yet; reopening
@@ -129,7 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: NSWorkspace.OpenConfiguration())
             return
         }
-        WindowActivation.activateSoon(mainWindow, showsDockIcon: model?.showDockIcon != false)
+        WindowActivation.activateSoon(mainWindow)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

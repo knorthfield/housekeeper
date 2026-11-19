@@ -16,12 +16,6 @@
 
 import Foundation
 
-public struct WatcherActivitySummary: Equatable, Sendable {
-    public let actionCount: Int
-    public let fileCount: Int
-    public let ruleNames: [String]
-}
-
 /// Wires `FileWatcher` events to the database and rule engine: for every
 /// created/renamed path, finds the owning watched folder, loads its rules,
 /// evaluates them, and persists any resulting action history. Mirrors
@@ -52,8 +46,6 @@ public final class WatcherCoordinator: @unchecked Sendable {
     /// and less often, up to this interval.
     private let maxStalledInterval: TimeInterval = 60
     public var onRuleMatched: (@Sendable (String, String) -> Void)?
-    public var onActivity: (@Sendable (WatcherActivitySummary) -> Void)?
-    public var onVolumeUnavailable: (@Sendable (VolumeUnavailableEvent) -> Void)?
     /// Called whenever an automatic run records history, failures included.
     public var onHistoryRecorded: (@Sendable () -> Void)?
     public var onProcessingError: (@Sendable (String) -> Void)?
@@ -469,25 +461,9 @@ public final class WatcherCoordinator: @unchecked Sendable {
                 try? db.insertHistoryEntries(history)
             }
             recordEvaluatedResultStates(history)
-            notifyActivity(from: history)
             onHistoryRecorded?()
             waitForDisconnectedVolumes(history, path: path, rules: rules, syncOnly: syncOnly)
         }
         recordEvaluatedState(path)
-    }
-
-    private func notifyActivity(from history: [HistoryEntry]) {
-        guard let summary = Self.activitySummary(from: history) else { return }
-        onActivity?(summary)
-    }
-
-    static func activitySummary(from history: [HistoryEntry]) -> WatcherActivitySummary? {
-        let applied = history.filter { $0.status == .applied }
-        guard !applied.isEmpty else { return nil }
-        return WatcherActivitySummary(
-            actionCount: applied.count,
-            fileCount: Set(applied.map(\.originalPath)).count,
-            ruleNames: Array(Set(applied.map(\.ruleName))).sorted()
-        )
     }
 }

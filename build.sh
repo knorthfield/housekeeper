@@ -152,8 +152,6 @@ write_info_plist() {
   <array>
     <string>arm64</string>
   </array>
-  <key>LSUIElement</key>
-  <true/>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSPhotoLibraryUsageDescription</key>

@@ -16,19 +16,8 @@
 
 import Foundation
 
-/// A file whose rules couldn't move or copy it because a destination disk or
-/// network share wasn't connected.
-public struct VolumeUnavailableEvent: Equatable, Sendable {
-    /// Names of the disks or shares, as under /Volumes.
-    public let volumes: [String]
-    public let ruleNames: [String]
-    /// Whether the rules run again on the file once its disk or share is
-    /// connected. Not when another action already changed it this time.
-    public let willRetry: Bool
-}
-
 /// Automatic runs whose destination disk or network share isn't connected:
-/// reported once per file, then run again when that disk or share comes back.
+/// run again when that disk or share comes back.
 extension WatcherCoordinator {
     /// Runs the rules again on the files that couldn't be moved or copied
     /// because the disk or share mounted at `mountPoint` wasn't connected.
@@ -62,8 +51,9 @@ extension WatcherCoordinator {
         }
     }
 
-    /// Reports a failed move or copy whose destination disk or share isn't
-    /// connected, and keeps the file to run its rules again when it is.
+    /// Keeps a file whose move or copy failed because the destination disk or
+    /// share isn't connected, to run its rules again when it is. Not when
+    /// another action already changed the file this time.
     func waitForDisconnectedVolumes(_ history: [HistoryEntry], path: String, rules: [Rule], syncOnly: Bool = false) {
         let volumes = Self.disconnectedVolumes(in: history, rules: rules)
         guard !volumes.isEmpty else { return }
@@ -74,19 +64,12 @@ extension WatcherCoordinator {
         let failed = history.filter { $0.status == .failed }
         let canRetrySync = !failed.isEmpty && failed.allSatisfy { $0.actionKind == .syncFolders }
             && FileManager.default.fileExists(atPath: path)
-        let willRetry = !applied || canRetrySync
-        if willRetry {
-            if syncOnly || (applied && canRetrySync) { waitingForSyncOnlyPaths.insert(path) }
-            else { waitingForSyncOnlyPaths.remove(path) }
-            for volume in volumes {
-                waitingForVolume[volume, default: []].insert(path)
-            }
+        guard !applied || canRetrySync else { return }
+        if syncOnly || (applied && canRetrySync) { waitingForSyncOnlyPaths.insert(path) }
+        else { waitingForSyncOnlyPaths.remove(path) }
+        for volume in volumes {
+            waitingForVolume[volume, default: []].insert(path)
         }
-        onVolumeUnavailable?(VolumeUnavailableEvent(
-            volumes: volumes,
-            ruleNames: Array(Set(failed.map(\.ruleName))).sorted(),
-            willRetry: willRetry
-        ))
     }
 
     /// The disks or shares, by name, that the failed moves and copies in

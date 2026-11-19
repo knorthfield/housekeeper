@@ -137,37 +137,6 @@ struct HousekeeperSwitch: View {
     }
 }
 
-/// A watched-folder row: icon, name, enabled switch — laid out like the
-/// volume-mixer rows in the reference design.
-struct QuickFolderRow: View {
-    let folder: WatchedFolder
-    @Binding var isOn: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(HousekeeperTheme.accent.opacity(0.18))
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(HousekeeperTheme.accent)
-            }
-            .frame(width: 26, height: 26)
-
-            Text((folder.path as NSString).lastPathComponent)
-                .font(.system(size: 13))
-                .foregroundStyle(HousekeeperTheme.primaryText)
-                .lineLimit(1)
-
-            Spacer()
-            HousekeeperSwitch(isOn: $isOn, compact: true)
-        }
-        .padding(.vertical, 7)
-        .padding(.horizontal, 14)
-        .help(folder.path)
-    }
-}
-
 /// A title row with a trailing segmented picker, used in Settings (e.g. "Theme").
 struct PickerRow<Value: Hashable, Content: View>: View {
     let title: String
@@ -211,30 +180,6 @@ struct SettingsActionRow: View {
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 14)
-    }
-}
-
-/// Bordered pill footer action sized to fill equally with its siblings, used
-/// by the menu-bar quick panel — mirrors how native macOS widgets (Control
-/// Center, the Notification Center weather widget) lay out footer actions.
-struct QuickPanelFooterButton: View {
-    let title: String
-    let systemImage: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: systemImage).font(.system(size: 10, weight: .medium))
-                Text(title).font(.system(size: 11, weight: .medium))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 7)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(HousekeeperTheme.primaryText)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(HousekeeperTheme.surface))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(HousekeeperTheme.surfaceBorder))
     }
 }
 
