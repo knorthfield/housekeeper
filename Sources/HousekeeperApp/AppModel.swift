@@ -68,6 +68,9 @@ final class AppModel: ObservableObject {
     }
     @Published var accentPreset: AccentPreset = .default
     @Published var historyMaxDays: Int = 30
+    /// When on, Housekeeper shows a menu bar icon, and the Dock icon shows
+    /// only while a window is open (see `AppDelegate`).
+    @Published var hideDockIcon = false
     /// Bumped whenever the accent colour changes, so views can force a full
     /// re-render with `.id(model.accentVersion)` — `HousekeeperTheme.accent` is a
     /// plain static var, not itself observable.
@@ -129,6 +132,9 @@ final class AppModel: ObservableObject {
         let storedMaxDays = db.withLock { db in (try? db.getSetting("history_max_days")).flatMap { Int($0) } }
         self.historyMaxDays = min(max(storedMaxDays ?? 30, 1), 30)
 
+        let storedHideDockIcon = db.withLock { db in try? db.getSetting("hide_dock_icon") }
+        self.hideDockIcon = storedHideDockIcon == "1"
+
         self.ruleExpansionPreferences = db.withLock { db in RuleExpansionPreferences.load(from: db) }
 
         reloadFolders()
@@ -177,6 +183,11 @@ final class AppModel: ObservableObject {
         historyMaxDays = clamped
         db.withLock { db in try? db.setSetting("history_max_days", "\(clamped)") }
         runHistoryCleanup()
+    }
+
+    func setHideDockIcon(_ hidden: Bool) {
+        hideDockIcon = hidden
+        db.withLock { db in try? db.setSetting("hide_dock_icon", hidden ? "1" : "0") }
     }
 
     private func runHistoryCleanup() {

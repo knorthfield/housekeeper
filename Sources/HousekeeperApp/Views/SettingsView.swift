@@ -101,6 +101,12 @@ struct SettingsView: View {
                     isOn: launchAtLoginBinding
                 )
                 Divider().overlay(HousekeeperTheme.divider).padding(.leading, 14)
+                ToggleRow(
+                    title: "Hide Dock icon",
+                    subtitle: "Show Housekeeper in the menu bar. The Dock icon shows only while a window is open",
+                    isOn: hideDockIconBinding
+                )
+                Divider().overlay(HousekeeperTheme.divider).padding(.leading, 14)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("Keep history for").font(.system(size: 13, weight: .semibold)).foregroundStyle(HousekeeperTheme.primaryText)
@@ -176,6 +182,10 @@ struct SettingsView: View {
             // saved and applies once running from a packaged build.
             LoginItem.setEnabled(enabled)
         })
+    }
+
+    private var hideDockIconBinding: Binding<Bool> {
+        Binding(get: { model.hideDockIcon }, set: { model.setHideDockIcon($0) })
     }
 
     private var watchingBinding: Binding<Bool> {

@@ -20,6 +20,9 @@ import HousekeeperCore
 
 /// Closing the window hides it instead of quitting, so Housekeeper keeps
 /// watching. A click on the Dock icon shows the window again.
+///
+/// With the Hide Dock icon setting on, a menu bar icon shows the window
+/// instead, and the Dock icon and the menus show only while a window is open.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Set by `HousekeeperMacApp` as soon as the model exists, so the model is
@@ -37,6 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// The main window was asked for before it existed (Housekeeper started as a
     /// login item); bring it forward as soon as SwiftUI has created it.
     private var activatesMainWindowWhenAttached = false
+    private var statusItem: NSStatusItem?
+    private var hideDockIconSubscription: AnyCancellable?
+    private var windowObservers: [NSObjectProtocol] = []
 
     /// `@NSApplicationDelegateAdaptor` requires a zero-argument initializer;
     /// the app's model is handed in afterward once SwiftUI has
@@ -44,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// `launchContext` at launch, whichever comes first).
     func configure(model: AppModel) {
         self.model = model
+        observeHideDockIcon()
         showMainWindowOnFirstLaunch()
     }
 
@@ -56,8 +63,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.titleVisibility = .hidden
         if activatesMainWindowWhenAttached {
             activatesMainWindowWhenAttached = false
-            WindowActivation.activateSoon(window)
+            bringForward(window)
         }
+    }
+
+    /// The Dock icon and the menus must be there before the window comes
+    /// forward, also when the Dock icon is hidden while no window is open.
+    private func bringForward(_ window: NSWindow) {
+        NSApp.setActivationPolicy(.regular)
+        WindowActivation.activateSoon(window)
     }
 
     /// Surface the main window once on a brand-new install, on the rules
@@ -89,6 +103,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if mainWindow == nil, let window = NSApp.windows.first {
             mainWindowDidAttach(window)
         }
+        observeHideDockIcon()
+    }
+
+    /// Keeps the menu bar icon and the Dock icon in step with the setting
+    /// and with the windows that are open. The subscription also fires with
+    /// the stored value at launch.
+    private func observeHideDockIcon() {
+        guard hideDockIconSubscription == nil, let model else { return }
+        // `@Published` sends the new value before it is set, so read the
+        // model one tick later.
+        hideDockIconSubscription = model.$hideDockIcon.sink { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.updateStatusItem()
+                self?.updateDockIconVisibility()
+            }
+        }
+        // The Settings window opens and closes without this delegate. A
+        // closing window is still visible when the notification arrives, so
+        // look one tick later.
+        for name in [NSWindow.didBecomeMainNotification, NSWindow.willCloseNotification] {
+            windowObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.updateDockIconVisibility()
+                }
+            })
+        }
+    }
+
+    private func updateStatusItem() {
+        guard model?.hideDockIcon == true else {
+            if let statusItem {
+                NSStatusBar.system.removeStatusItem(statusItem)
+                self.statusItem = nil
+            }
+            return
+        }
+        guard statusItem == nil else { return }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.button?.image = NSImage(systemSymbolName: "sparkles.rectangle.stack.fill", accessibilityDescription: "Housekeeper")
+        item.button?.toolTip = "Open Housekeeper"
+        item.button?.target = self
+        item.button?.action = #selector(statusItemClicked)
+        statusItem = item
+    }
+
+    @objc private func statusItemClicked() {
+        openMainWindow()
+    }
+
+    private func updateDockIconVisibility() {
+        let hasOpenWindow = NSApp.windows.contains { $0.isVisible && $0.canBecomeMain }
+        let showsDockIcon = model?.hideDockIcon != true || hasOpenWindow
+        let policy: NSApplication.ActivationPolicy = showsDockIcon ? .regular : .accessory
+        if NSApp.activationPolicy() != policy {
+            NSApp.setActivationPolicy(policy)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -113,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: NSWorkspace.OpenConfiguration())
             return
         }
-        WindowActivation.activateSoon(mainWindow)
+        bringForward(mainWindow)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -122,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         sender.orderOut(nil)
+        updateDockIconVisibility()
         return false
     }
 }
