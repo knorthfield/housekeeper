@@ -6,6 +6,8 @@
 
 Housekeeper is a fork of Forel (lab421, GPL-3.0). It has no licence checks, no limits, no updater and no network calls. Keep it that way. It builds for Apple silicon only.
 
+Homebrew installs the updates. `UpdateRelauncher` (`Sources/HousekeeperApp/System`) is not an updater: it downloads nothing. When Homebrew replaces the app on the disk, it starts the new version when no rule runs and Housekeeper is not the active app.
+
 Housekeeper is a native macOS file-automation app. It watches folders and runs user-defined rules on files locally. The active app is the Swift package at the repository root.
 
 ## Stack
