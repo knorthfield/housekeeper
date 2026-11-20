@@ -82,6 +82,10 @@ final class AppModel: ObservableObject {
     @Published var previewResult: PreviewResult?
     @Published private var ruleExpansionPreferences = RuleExpansionPreferences()
     var canAddRule: Bool { selectedFolderId != nil }
+    /// Rules run now: from Run Now, a Dry Run, or a file event in a watched folder.
+    var isRunningRules: Bool {
+        isRunningNow || isPreviewing || folders.contains { coordinator.isProcessing(in: $0.path) }
+    }
     private func executionRules(for folder: WatchedFolder) -> [Rule] {
         db.withLock { db in (try? db.executionRules(folderID: folder.id)) ?? [] }
     }

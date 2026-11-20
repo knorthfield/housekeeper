@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var hideDockIconSubscription: AnyCancellable?
     private var windowObservers: [NSObjectProtocol] = []
+    private lazy var updateRelauncher = UpdateRelauncher(isBusy: { [weak self] in self?.model?.isRunningRules ?? false })
 
     /// `@NSApplicationDelegateAdaptor` requires a zero-argument initializer;
     /// the app's model is handed in afterward once SwiftUI has
@@ -104,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             mainWindowDidAttach(window)
         }
         observeHideDockIcon()
+        updateRelauncher.start()
     }
 
     /// Keeps the menu bar icon and the Dock icon in step with the setting
