@@ -104,6 +104,36 @@ public struct PreviewResult: Sendable {
 }
 
 public enum RuleEngine {
+    /// A Dry Run of `rules` on every file in `root`: what each rule would do,
+    /// with nothing changed. Keeps at most `matchLimit` files.
+    public static func previewFolder(root: String, rules: [Rule], matchLimit: Int) -> PreviewResult {
+        let maxDepth = maxRuleDepth(rules)
+        var filesScanned = 0
+        var matches: [FilePreview] = []
+        var reachedMatchLimit = false
+        forEachEntry(root: root, maxDepth: maxDepth) { entry in
+            filesScanned += 1
+            guard let match = previewFile(path: entry.path, depth: entry.depth, rules: rules, root: root) else {
+                return
+            }
+            if matches.count < matchLimit {
+                matches.append(match)
+            } else {
+                reachedMatchLimit = true
+            }
+        }
+        let removals = previewSyncRemovals(rules: rules, root: root, path: root)
+        let room = max(0, matchLimit - matches.count)
+        if removals.count > room { reachedMatchLimit = true }
+        matches += removals.prefix(room)
+        return PreviewResult(
+            filesScanned: filesScanned,
+            matches: matches,
+            matchLimit: matchLimit,
+            reachedMatchLimit: reachedMatchLimit
+        )
+    }
+
     /// Evaluates all enabled rules against `path` and runs matching ones.
     /// Returns the names of rules that matched and the history entries
     /// produced by their actions (grouped under `batchId`).

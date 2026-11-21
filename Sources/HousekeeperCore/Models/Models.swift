@@ -57,12 +57,12 @@ public struct WatchedPathState: Codable, Equatable, Sendable {
     }
 }
 
-public enum ConditionMatch: String, Codable, Equatable, Sendable {
+public enum ConditionMatch: String, CaseIterable, Codable, Equatable, Sendable {
     case all
     case any
 }
 
-public enum ConditionKind: String, Codable, Equatable, Sendable {
+public enum ConditionKind: String, CaseIterable, Codable, Equatable, Sendable {
     case name
     case comment
     case locked
@@ -85,7 +85,7 @@ public enum ConditionKind: String, Codable, Equatable, Sendable {
     }
 }
 
-public enum Operator: String, Codable, Equatable, Sendable {
+public enum Operator: String, CaseIterable, Codable, Equatable, Sendable {
     case isTrue = "is_true"
     case isFalse = "is_false"
     case `is`
@@ -123,7 +123,7 @@ public struct Condition: Codable, Equatable, Sendable {
     }
 }
 
-public enum ActionKind: String, Codable, Equatable, Sendable {
+public enum ActionKind: String, CaseIterable, Codable, Equatable, Sendable {
     case moveToFolder = "move_to_folder"
     case copyToFolder = "copy_to_folder"
     case syncFolders = "sync_folders"

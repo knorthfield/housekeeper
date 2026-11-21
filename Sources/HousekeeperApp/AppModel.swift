@@ -579,31 +579,7 @@ final class AppModel: ObservableObject {
         Task {
             defer { isPreviewing = false }
             previewResult = await Task.detached(priority: .userInitiated) {
-                let maxDepth = RuleEngine.maxRuleDepth(folderRules)
-                var filesScanned = 0
-                var matches: [FilePreview] = []
-                var reachedMatchLimit = false
-                RuleEngine.forEachEntry(root: folder.path, maxDepth: maxDepth) { entry in
-                    filesScanned += 1
-                    guard let match = RuleEngine.previewFile(path: entry.path, depth: entry.depth, rules: folderRules, root: folder.path) else {
-                        return
-                    }
-                    if matches.count < matchLimit {
-                        matches.append(match)
-                    } else {
-                        reachedMatchLimit = true
-                    }
-                }
-                let removals = RuleEngine.previewSyncRemovals(rules: folderRules, root: folder.path, path: folder.path)
-                let room = max(0, matchLimit - matches.count)
-                if removals.count > room { reachedMatchLimit = true }
-                matches += removals.prefix(room)
-                return PreviewResult(
-                    filesScanned: filesScanned,
-                    matches: matches,
-                    matchLimit: matchLimit,
-                    reachedMatchLimit: reachedMatchLimit
-                )
+                RuleEngine.previewFolder(root: folder.path, rules: folderRules, matchLimit: matchLimit)
             }.value
         }
     }
