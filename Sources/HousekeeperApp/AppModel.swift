@@ -98,6 +98,7 @@ final class AppModel: ObservableObject {
     private let ruleRunStatsWindowDays = 30
     private var historyCleanupTimer: AnyCancellable?
     private var volumeMountObserver: NSObjectProtocol?
+    private var outsideChangeObserver: NSObjectProtocol?
     /// Bumped when automatic runs record history, for views showing recent
     /// activity. A burst of files makes one bump, not one per file.
     @Published private(set) var watcherHistoryRevision = 0
@@ -139,6 +140,22 @@ final class AppModel: ObservableObject {
         reloadFolders()
         startHistoryCleanupTimer()
         observeVolumeMounts()
+        observeChangesFromCommandLineTool()
+    }
+
+    /// The `housekeeper` command-line tool writes folders and rules to the
+    /// database itself. It then posts this, so the window shows them and a
+    /// new folder is watched. A rule open in the editor is left as it is.
+    private func observeChangesFromCommandLineTool() {
+        outsideChangeObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Database.changedOutsideAppNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reloadFolders()
+            }
+        }
     }
 
     /// A disk or share coming back runs the rules again on the files that

@@ -47,6 +47,11 @@ public final class Database: @unchecked Sendable {
         try initSchema()
     }
 
+    /// Posted between processes (`DistributedNotificationCenter`) by the
+    /// `housekeeper` command-line tool after it changes folders or rules, so
+    /// the running app reloads them.
+    public static let changedOutsideAppNotification = Notification.Name("com.krisnorthfield.housekeeper.rulesChanged")
+
     /// Where the app keeps its database. Makes the folder when it is missing.
     public static func defaultPath() throws -> String {
         let appSupportRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

@@ -25,6 +25,10 @@ let package = Package(
             ],
             resources: [.copy("Resources")]
         ),
+        .executableTarget(
+            name: "HousekeeperCLI",
+            dependencies: ["HousekeeperCore"]
+        ),
         .testTarget(
             name: "HousekeeperCoreTests",
             dependencies: ["HousekeeperCore"]
