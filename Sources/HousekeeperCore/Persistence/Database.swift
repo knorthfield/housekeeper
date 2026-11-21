@@ -41,7 +41,18 @@ public final class Database: @unchecked Sendable {
             throw SQLiteError("failed to open database at \(path)")
         }
         self.handle = db
+        // The app and the `housekeeper` command-line tool can write at the
+        // same time: wait for the other writer instead of failing.
+        sqlite3_busy_timeout(db, 5000)
         try initSchema()
+    }
+
+    /// Where the app keeps its database. Makes the folder when it is missing.
+    public static func defaultPath() throws -> String {
+        let appSupportRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let appSupport = appSupportRoot.appendingPathComponent("com.krisnorthfield.housekeeper", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        return appSupport.appendingPathComponent("housekeeper.db").path
     }
 
     deinit { sqlite3_close(handle) }

@@ -104,12 +104,7 @@ final class AppModel: ObservableObject {
     private var watcherHistoryRevisionTask: Task<Void, Never>?
 
     init() throws {
-        let appSupportRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let appSupport = appSupportRoot.appendingPathComponent("com.krisnorthfield.housekeeper", isDirectory: true)
-        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        let dbPath = appSupport.appendingPathComponent("housekeeper.db").path
-
-        let db = try Database(path: dbPath)
+        let db = try Database(path: Database.defaultPath())
         self.db = db
         self.coordinator = WatcherCoordinator(db: db)
         self.coordinator.onHistoryRecorded = { [weak self] in
