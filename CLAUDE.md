@@ -27,6 +27,7 @@ housekeeper/
 ├── Package.swift
 ├── Sources/
 │   ├── HousekeeperApp/
+│   ├── HousekeeperCLI/
 │   └── HousekeeperCore/
 ├── Tests/
 └── README.md
@@ -43,6 +44,11 @@ housekeeper/
 
 - `Sources/HousekeeperApp` contains the SwiftUI app, windows and views.
 - `Sources/HousekeeperCore` contains models, persistence, watcher, and rule engine logic.
+- `Sources/HousekeeperCLI` contains the `housekeeper` command-line tool for coding agents
+  (`build.sh` puts it in `Contents/MacOS`). It reads and writes folders and rules as JSON
+  (`RuleDocument`), checks them with `RuleValidator.validateAgainstSchema`, and runs a Dry Run.
+  It writes to the database itself, then posts `Database.changedOutsideAppNotification`, and
+  `AppModel` reloads. It never runs an action. Keep it thin: the logic belongs in Core.
 - `Tests/HousekeeperCoreTests` contains the core unit tests. Add or update tests with behavior changes.
 
 ## Execution pipeline

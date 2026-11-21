@@ -41,7 +41,7 @@ compile_icon() {
   rm -f "$partial_plist"
 }
 
-# Copies the binary and resources from SwiftPM's exact product directory
+# Copies the binaries and resources from SwiftPM's exact product directory
 # into a fresh "$dest_app/Contents/{MacOS,Resources}". Shared by
 # `dev` and `package` so the two don't drift out of sync.
 assemble_app_bundle() {
@@ -63,6 +63,10 @@ assemble_app_bundle() {
 
   cp "$binary_path" "$macos_dir/HousekeeperApp"
   chmod +x "$macos_dir/HousekeeperApp"
+  # The command-line tool for coding agents. The Homebrew cask links it as
+  # `housekeeper`. `codesign --deep` signs it with the app.
+  cp "$products_dir/HousekeeperCLI" "$macos_dir/housekeeper"
+  chmod +x "$macos_dir/housekeeper"
   if [[ -d "$resource_bundle" ]]; then
     cp -R "$resource_bundle" "$resources_dir/"
   fi

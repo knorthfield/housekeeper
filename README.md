@@ -39,6 +39,26 @@ move Housekeeper to Applications. Housekeeper needs macOS 14 or later on an Appl
 
 Scripts run with `/bin/bash`, once for each file, with the path in `$HOUSEKEEPER_FILE`.
 
+## Coding agents
+
+A coding agent (Claude Code, Codex and others) can read and change your folders and rules with
+the `housekeeper` command. The Homebrew cask puts it on the PATH. In the download, it is
+`Housekeeper.app/Contents/MacOS/housekeeper`.
+
+```bash
+housekeeper help                                  # all commands
+housekeeper schema                                # the rule format, with all permitted values
+housekeeper folders add ~/Downloads
+housekeeper rules add --folder ~/Downloads rule.json
+housekeeper dry-run --folder ~/Downloads --rule <rule-id>
+housekeeper rules enable <rule-id>
+```
+
+Rules are JSON. The command checks each rule before it saves the rule, and a new rule is
+disabled until you or the agent enable it. A Dry Run shows what a rule will do and changes no
+file. The command does not run actions: the app does, while it is open. The open app shows each
+change immediately.
+
 ## Build
 
 ```bash
