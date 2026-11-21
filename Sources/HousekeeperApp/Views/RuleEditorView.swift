@@ -204,18 +204,6 @@ struct RuleEditorView: View {
 
 }
 
-/// Why a rule being edited can't be saved yet, as the editor reports it.
-enum RuleEditorDraftCheck {
-    static func problems(_ rule: Rule) -> [String] {
-        var problems: [String] = []
-        if rule.name.trimmingCharacters(in: .whitespaces).isEmpty {
-            problems.append("The rule needs a name.")
-        }
-        problems += (RuleValidator.validate(rule.conditions) + RuleValidator.validate(rule.actions)).map(\.message)
-        return problems
-    }
-}
-
 private struct RuleValidationBanner: View {
     let messages: [String]
 

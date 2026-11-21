@@ -82,7 +82,7 @@ struct ContentView: View {
     }
 
     private var unsavedRuleProblems: [String] {
-        model.editingDraft.map(RuleEditorDraftCheck.problems) ?? []
+        model.editingDraft.map { RuleValidator.validate($0).map(\.message) } ?? []
     }
 
     private var unsavedRuleTitle: String {

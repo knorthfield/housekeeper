@@ -425,7 +425,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func savePendingDraftAndNavigate() -> Bool {
         guard let draft = editingDraft, let navigation = pendingNavigation?.perform else { return false }
-        guard RuleEditorDraftCheck.problems(draft).isEmpty, saveRule(draft) else {
+        guard RuleValidator.validate(draft).isEmpty, saveRule(draft) else {
             pendingNavigation = nil
             return false
         }

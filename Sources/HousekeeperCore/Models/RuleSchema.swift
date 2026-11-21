@@ -235,6 +235,19 @@ public enum ActionParam {
     public static let cleanFileName = "clean_file_name"
     public static let libraryType = "library_type"
     public static let targetPlaylist = "target_playlist"
+
+    /// The values a parameter accepts, for the ones that take one of a fixed
+    /// set. `nil` for free text, paths and booleans.
+    public static func permittedValues(for key: String) -> [String]? {
+        switch key {
+        case onConflict: return MoveConflictResolution.allCases.map(\.rawValue)
+        case syncDeletePolicy: return SyncDeletePolicy.allCases.map(\.rawValue)
+        case shortcutInputMode: return ShortcutInputMode.allCases.map(\.rawValue)
+        case libraryType: return LibraryType.allCases.map(\.rawValue)
+        case color: return ["", "gray", "green", "purple", "blue", "yellow", "red", "orange"]
+        default: return nil
+        }
+    }
 }
 
 /// The abstract shape of an action parameter; the UI maps it to a concrete editor.
@@ -350,6 +363,27 @@ public extension ActionKind {
             return [ActionParamSpec(key: ActionParam.archiveName, kind: .archiveName),
                     ActionParamSpec(key: ActionParam.destination, kind: .folderPath)]
         case .moveToTrash, .delete, .uncompress:
+            return []
+        }
+    }
+
+    /// The keys of the Options popover for this action: optional settings
+    /// stored in `params` next to the ones in `params` above.
+    var optionKeys: [String] {
+        switch self {
+        case .moveToFolder, .copyToFolder, .importToLibrary, .uncompress:
+            return [ActionParam.onConflict]
+        case .syncFolders:
+            return [ActionParam.syncDeletePolicy]
+        case .rename:
+            return [ActionParam.cleanFileName]
+        case .compress:
+            return [ActionParam.deleteSourceAfterCompression]
+        case .runShortcut:
+            return [ActionParam.shortcutInputMode]
+        case .openApplication:
+            return [ActionParam.passFileToApplication]
+        case .addTag, .removeTag, .setColorLabel, .toggleLock, .toggleExtension, .runScript, .moveToTrash, .delete:
             return []
         }
     }

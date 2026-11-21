@@ -24,6 +24,55 @@ public enum RuleValidator {
         public init(message: String) { self.message = message }
     }
 
+    /// Why `rule` can't be saved yet, as the rule editor reports it.
+    public static func validate(_ rule: Rule) -> [Issue] {
+        var issues: [Issue] = []
+        if rule.name.trimmingCharacters(in: .whitespaces).isEmpty {
+            issues.append(Issue(message: "The rule needs a name."))
+        }
+        return issues + validate(rule.conditions) + validate(rule.actions)
+    }
+
+    /// `validate(rule)` plus what the rule editor's pickers make impossible,
+    /// for rules that come from outside the app: an operator the condition
+    /// doesn't accept, a parameter the action doesn't read, or a value that
+    /// isn't one of the permitted ones. The engine would silently fall back
+    /// to a default for these.
+    public static func validateAgainstSchema(_ rule: Rule) -> [Issue] {
+        var issues = validate(rule)
+        for condition in rule.conditions where !condition.kind.validOperators.contains(condition.operator) {
+            let permitted = condition.kind.validOperators.map(\.rawValue).joined(separator: ", ")
+            issues.append(Issue(message: "Condition \"\(condition.kind.rawValue)\" does not accept the operator \"\(condition.operator.rawValue)\". Use one of: \(permitted)"))
+        }
+        if rule.actions.isEmpty {
+            issues.append(Issue(message: "The rule needs at least one action."))
+        }
+        for action in rule.actions {
+            let kind = action.kind.rawValue
+            guard case .object(let params) = action.params else {
+                issues.append(Issue(message: "The params of action \"\(kind)\" must be an object"))
+                continue
+            }
+            // "tag" is the old single-tag form, which the engine still reads.
+            let legacyKeys = action.kind == .addTag || action.kind == .removeTag ? ["tag"] : []
+            let knownKeys = action.kind.params.map(\.key) + action.kind.optionKeys + legacyKeys
+            for key in params.keys.sorted() {
+                guard knownKeys.contains(key) else {
+                    let list = knownKeys.isEmpty ? "it takes none" : "it takes: \(knownKeys.joined(separator: ", "))"
+                    issues.append(Issue(message: "Action \"\(kind)\" does not take the parameter \"\(key)\"; \(list)"))
+                    continue
+                }
+                guard let permitted = ActionParam.permittedValues(for: key) else { continue }
+                let value = params[key]?.stringValue?.lowercased()
+                if value.map(permitted.contains) != true {
+                    let list = permitted.map { "\"\($0)\"" }.joined(separator: ", ")
+                    issues.append(Issue(message: "The parameter \"\(key)\" of action \"\(kind)\" must be one of: \(list)"))
+                }
+            }
+        }
+        return issues
+    }
+
     public static func validate(_ conditions: [Condition]) -> [Issue] {
         conditions.compactMap { condition in
             if condition.kind == .locked {

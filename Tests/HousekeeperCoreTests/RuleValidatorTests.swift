@@ -145,4 +145,48 @@ import Foundation
         ]
         #expect(RuleValidator.validate(actions) == [.init(message: "Rename pattern cannot be empty")])
     }
+
+    // MARK: - Full rules
+
+    @Test func ruleWithoutNameReportsIssue() {
+        let rule = makeRule(name: "  ", actions: [makeAction(.moveToTrash, .object([:]))])
+        #expect(RuleValidator.validate(rule) == [.init(message: "The rule needs a name.")])
+    }
+
+    @Test func schemaAcceptsWhatTheEditorSaves() {
+        let rule = makeRule(
+            name: "PDFs",
+            conditions: [makeCondition(.extension_, .is, "pdf"), makeCondition(.locked, .isFalse, "")],
+            actions: [
+                makeAction(.moveToFolder, .object(["destination": .string("/tmp/x"), "on_conflict": .string("skip")])),
+                makeAction(.addTag, .object(["tags": .stringArray(["Work"])])),
+                makeAction(.setColorLabel, .object(["color": .string("Red")])),
+                makeAction(.moveToTrash, .object([:])),
+            ]
+        )
+        #expect(RuleValidator.validateAgainstSchema(rule).isEmpty)
+    }
+
+    @Test func schemaRefusesOperatorTheConditionDoesNotAccept() {
+        let rule = makeRule(name: "Big", conditions: [makeCondition(.sizeBytes, .contains, "1 MB")],
+                            actions: [makeAction(.moveToTrash, .object([:]))])
+        let issues = RuleValidator.validateAgainstSchema(rule)
+        #expect(issues.count == 1)
+        #expect(issues.first?.message.contains("greater_than") == true)
+    }
+
+    @Test func schemaRefusesUnknownParameterAndValue() {
+        let rule = makeRule(name: "Move", actions: [
+            makeAction(.moveToFolder, .object(["destination": .string("/tmp/x"), "on_conflict": .string("overwrite")])),
+            makeAction(.moveToTrash, .object(["destination": .string("/tmp/x")])),
+        ])
+        let messages = RuleValidator.validateAgainstSchema(rule).map(\.message)
+        #expect(messages.count == 2)
+        #expect(messages[0].contains("\"rename\", \"replace\", \"skip\""))
+        #expect(messages[1].contains("it takes none"))
+    }
+
+    @Test func schemaRefusesRuleWithoutActions() {
+        #expect(RuleValidator.validateAgainstSchema(makeRule(name: "Empty")).map(\.message) == ["The rule needs at least one action."])
+    }
 }
