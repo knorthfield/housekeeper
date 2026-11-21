@@ -67,6 +67,7 @@ public enum ConditionKind: String, CaseIterable, Codable, Equatable, Sendable {
     case comment
     case locked
     case extension_ = "extension"
+    case containingFolder = "containing_folder"
     case kind
     case sizeBytes = "size_bytes"
     case tags

@@ -25,7 +25,7 @@ move Housekeeper to Applications. Housekeeper needs macOS 14 or later on an Appl
 
 ## What it does
 
-- **Conditions:** name, extension, kind, size, tags, colour label, Finder comment, contents
+- **Conditions:** name, extension, containing folder, kind, size, tags, colour label, Finder comment, contents
   (with OCR for images and scanned PDFs), download source, locked state, and the created,
   modified, added and last-opened dates. Combine them with *all* or *any*.
 - **Actions:** move, copy, sync folders, rename, compress, uncompress, add or remove a tag, set

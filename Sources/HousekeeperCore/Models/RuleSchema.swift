@@ -88,6 +88,7 @@ public extension ConditionKind {
         case .comment: return "Comment"
         case .locked: return "Locked"
         case .extension_: return "Extension"
+        case .containingFolder: return "Containing folder"
         case .kind: return "Kind"
         case .sizeBytes: return "Size"
         case .tags: return "Tags"
@@ -116,7 +117,7 @@ public extension ConditionKind {
             return [.is, .isNot, .greaterThan, .lessThan]
         case .kind, .colorLabel:
             return [.is, .isNot]
-        case .name, .comment, .extension_, .tags, .contents,
+        case .name, .comment, .extension_, .containingFolder, .tags, .contents,
              .downloadedFromWebsite, .rawWhereFromMetadata:
             return [.is, .isNot, .contains, .doesNotContain, .startsWith, .endsWith, .matchesRegex]
         case .downloadedWithApp:
@@ -137,7 +138,7 @@ public extension ConditionKind {
         case .sizeBytes: return .size
         case .colorLabel: return .colorLabel
         case .createdAt, .dateModified, .dateAdded, .dateLastOpened: return .absoluteDate
-        case .name, .comment, .extension_, .tags, .contents,
+        case .name, .comment, .extension_, .containingFolder, .tags, .contents,
              .downloadedFromWebsite, .rawWhereFromMetadata: return .text
         case .downloadedWithApp: return .appPicker
         }
@@ -150,6 +151,7 @@ public extension ConditionKind {
         case .comment: return "text.bubble"
         case .locked: return "lock"
         case .extension_: return "puzzlepiece.extension"
+        case .containingFolder: return "folder"
         case .kind: return "doc.viewfinder"
         case .sizeBytes: return "externaldrive"
         case .tags: return "tag"
@@ -174,6 +176,8 @@ public extension ConditionKind {
             return "Matches the Locked checkbox in Finder's Get Info window, independently of read and write permissions."
         case .comment:
             return "Matches the Finder comment shown in Get Info. Files without a comment are treated as having an empty comment."
+        case .containingFolder:
+            return "Matches the name of the folder that directly contains the item, not the folders above it. For an item directly in the watched folder, that is the watched folder."
         case .dateLastOpened:
             return "Uses the last-opened date recorded by macOS, not the last filesystem access. Items without this date do not match."
         case .tags:
@@ -419,7 +423,7 @@ public struct ActionKindGroup: Sendable {
 public enum RuleSchema {
     public static let conditionKindGroups: [ConditionKindGroup] = [
         ConditionKindGroup(title: nil, kinds: [
-            .name, .extension_, .kind, .sizeBytes, .tags, .colorLabel, .locked, .contents,
+            .name, .extension_, .containingFolder, .kind, .sizeBytes, .tags, .colorLabel, .locked, .contents,
             .createdAt, .dateModified, .dateAdded, .dateLastOpened,
         ]),
         ConditionKindGroup(title: "Metadata", kinds: [

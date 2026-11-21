@@ -48,6 +48,9 @@ public enum ConditionEvaluator {
             let value = condition.value.trimmingPrefix(while: { $0 == "." }).lowercased()
             return matchString(condition.operator, ext, value)
 
+        case .containingFolder:
+            return matchString(condition.operator, url.deletingLastPathComponent().lastPathComponent, condition.value)
+
         case .kind:
             guard let attrs else { return false }
             let detected = detectKind(path: path, attrs: attrs)
