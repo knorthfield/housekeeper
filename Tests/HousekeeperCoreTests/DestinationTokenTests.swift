@@ -96,4 +96,50 @@ import Testing
             #expect(FileManager.default.fileExists(atPath: path) == (kind == .copyToFolder))
         }
     }
+
+    @Test(arguments: ["preview", "manual", "watcher"])
+    func folderTokenKeepsEachSubfolderApartOnEveryExecutionPath(execution: String) throws {
+        let dir = TempDir()
+        let input = dir.dir("Input")
+        let output = dir.dir("Share")
+        _ = dir.dir("Input/Holiday")
+        _ = dir.dir("Input/Work")
+        let holidayPhoto = dir.file("Input/Holiday/beach.jpg", contents: "beach")
+        let workPhoto = dir.file("Input/Work/desk.jpg", contents: "desk")
+        let expected = [output + "/Holiday/beach.jpg", output + "/Work/desk.jpg"]
+        let folder = WatchedFolder(path: input)
+        var rule = makeRule(folderId: folder.id, name: "Move images")
+        rule.recursionDepth = 1
+        rule.conditions = [makeCondition(.kind, .is, "image", ruleId: rule.id)]
+        rule.actions = [makeAction(.moveToFolder, .object([ActionParam.destination: .string(output + "/{folder}")]), ruleId: rule.id)]
+        let db = try Database(path: dir.path + "/rules.db")
+        try db.insertFolder(folder)
+        try db.insertRule(rule)
+        let rules = try db.executionRules(folderID: folder.id)
+        let entries = RuleEngine.walkEntries(root: input, maxDepth: RuleEngine.maxRuleDepth(rules))
+        if execution == "preview" {
+            let targets = entries
+                .compactMap { RuleEngine.previewFile(path: $0.path, depth: $0.depth, rules: rules, root: input) }
+                .flatMap { $0.rules.flatMap(\.actions) }
+                .compactMap(\.targetPath)
+            #expect(targets.sorted() == expected)
+            #expect(FileManager.default.fileExists(atPath: holidayPhoto))
+            return
+        }
+        if execution == "manual" {
+            for entry in entries {
+                _ = RuleEngine.run(path: entry.path, depth: entry.depth, rules: rules, batchId: "folder", root: input)
+            }
+        } else {
+            let coordinator = WatcherCoordinator(db: db, settleInterval: 0.01)
+            coordinator.enqueue(event: .pathArrived(holidayPhoto))
+            coordinator.enqueue(event: .pathArrived(workPhoto))
+            coordinator.waitForPendingEvents()
+        }
+        for path in expected {
+            #expect(FileManager.default.fileExists(atPath: path))
+        }
+        #expect(!FileManager.default.fileExists(atPath: holidayPhoto))
+        #expect(!FileManager.default.fileExists(atPath: workPhoto))
+    }
 }

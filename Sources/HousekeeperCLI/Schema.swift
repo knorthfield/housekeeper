@@ -116,7 +116,7 @@ func schema() throws -> SchemaOutput {
         parameterTypes: [
             "boolean": "true or false.",
             "one_of": "One of the values in \"values\".",
-            "folder_path": "A folder path; ~ is the home folder. For move, copy and sync, it can contain {kind}, {extension}, {year}, {month}, {day}, {hour}, {minute} and {quarter}, from the file and its creation date. For compress, empty means the folder of the file.",
+            "folder_path": "A folder path; ~ is the home folder. For move, copy and sync, it can contain {kind}, {extension}, {year}, {month}, {day}, {hour}, {minute} and {quarter}, from the file and its creation date, and {folder}, the name of the folder that contains the file. For compress, empty means the folder of the file.",
             "rename_pattern": "The new name, without the extension unless {extension} is used. Tokens: {name}, {extension}, {date_created}, {date_modified}, {current_date}, {size}.",
             "archive_name": "The name of the ZIP file. Tokens: {name}, {current_date}, {timestamp}. Empty means {name}.zip.",
             "tags": "A list of Finder tag names: [\"Work\", \"Invoices\"].",

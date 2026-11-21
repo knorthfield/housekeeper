@@ -1073,7 +1073,7 @@ private struct ActionRow: View {
             FolderField(
                 placeholder: "Destination folder",
                 path: paramBinding(ActionParam.destination),
-                hint: "Add {kind}, {extension}, {year}, {month}, {day}, {hour}, {minute}, or {quarter} to sort into folders, e.g. …/Sorted/{kind}/{year}"
+                hint: "Add {kind}, {extension}, {folder}, {year}, {month}, {day}, {hour}, {minute}, or {quarter} to sort into folders, e.g. …/Sorted/{kind}/{year}"
             )
         case .syncFolders:
             FolderField(placeholder: "Destination folder", path: paramBinding(ActionParam.destination))
@@ -1274,7 +1274,7 @@ private struct ActionOptionsView: View {
             FolderField(
                 placeholder: "Next to the source (default)",
                 path: paramBinding(ActionParam.destination),
-                hint: "Supports {kind}, {extension}, {year}, {month}, {day}, {hour}, {minute}, and {quarter}."
+                hint: "Supports {kind}, {extension}, {folder}, {year}, {month}, {day}, {hour}, {minute}, and {quarter}."
             )
             if action.params[ActionParam.destination]?.stringValue?.isEmpty == false {
                 Button("Use source folder") { paramBinding(ActionParam.destination).wrappedValue = "" }

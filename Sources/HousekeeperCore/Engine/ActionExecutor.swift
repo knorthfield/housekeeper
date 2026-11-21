@@ -307,7 +307,9 @@ public enum ActionExecutor {
     /// - `{extension}`, lowercased so `.JPG` and `.jpg` share a folder, or
     ///   "No Extension";
     /// - `{kind}`, the file's kind as the Kind condition names it ("Image",
-    ///   "PDF", "Document"…).
+    ///   "PDF", "Document"…);
+    /// - `{folder}`, the name of the folder that contains the file, so one
+    ///   rule on subfolders can keep each subfolder apart.
     /// Unknown `{...}` sequences are left as-is. A typed `~` is expanded to
     /// the home folder.
     private static func expandedDestination(_ rawTemplate: String, fileAtPath: String) -> String {
@@ -333,6 +335,10 @@ public enum ActionExecutor {
             let kind = ConditionEvaluator.detectKind(path: fileAtPath, attrs: attrs ?? [:])
             let label = FileKindCatalog.all.first { $0.value == kind }?.label ?? kind
             result = result.replacingOccurrences(of: "{kind}", with: label)
+        }
+        if result.contains("{folder}") {
+            let containingFolderName = ((fileAtPath as NSString).deletingLastPathComponent as NSString).lastPathComponent
+            result = result.replacingOccurrences(of: "{folder}", with: containingFolderName)
         }
         return result
     }
