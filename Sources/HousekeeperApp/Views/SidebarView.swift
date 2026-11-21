@@ -22,6 +22,11 @@ struct SidebarView: View {
     @EnvironmentObject var model: AppModel
     @State private var draggedFolderId: String?
     @State private var insertionIndex: Int?
+    @State private var isFolderDropTargeted = false
+    /// The cards and the gaps between them are drop targets of their own, and
+    /// SwiftUI does not pass a drop on them to the sidebar's target. This is the
+    /// one a folder from Finder is over.
+    @State private var folderDropTargetInList: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -62,28 +67,16 @@ struct SidebarView: View {
                                     return NSItemProvider(object: folder.id as NSString)
                                 }
                                 .onDrop(
-                                    of: [.plainText],
-                                    delegate: FolderInsertionDropDelegate(
-                                        insertionIndex: index,
-                                        folders: model.folders,
-                                        draggedFolderId: $draggedFolderId,
-                                        activeInsertionIndex: $insertionIndex,
-                                        move: model.reorderFolders
-                                    )
+                                    of: [.plainText, .fileURL],
+                                    delegate: folderDropDelegate(insertionIndex: index, targetName: "card \(index)")
                                 )
                         }
                         folderDropTarget(model.folders.count)
                     }
                     .animation(.easeInOut(duration: 0.12), value: insertionIndex)
                     .onDrop(
-                        of: [.plainText],
-                        delegate: FolderInsertionDropDelegate(
-                            insertionIndex: model.folders.count,
-                            folders: model.folders,
-                            draggedFolderId: $draggedFolderId,
-                            activeInsertionIndex: $insertionIndex,
-                            move: model.reorderFolders
-                        )
+                        of: [.plainText, .fileURL],
+                        delegate: folderDropDelegate(insertionIndex: model.folders.count, targetName: "end of list")
                     )
                 }
                 .scrollIndicators(.never)
@@ -112,6 +105,28 @@ struct SidebarView: View {
         // The system sidebar material is nearly opaque; this lets the desktop
         // show through, up to the top of the window.
         .background(VisualEffectBlur(material: .hudWindow).ignoresSafeArea())
+        .overlay {
+            if isFolderDropTargeted || folderDropTargetInList != nil {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(HousekeeperTheme.accent, lineWidth: 2)
+                    .padding(4)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onDrop(of: [.fileURL], isTargeted: $isFolderDropTargeted, perform: addDroppedFolders)
+    }
+
+    private func folderDropDelegate(insertionIndex: Int, targetName: String) -> FolderInsertionDropDelegate {
+        FolderInsertionDropDelegate(
+            insertionIndex: insertionIndex,
+            folders: model.folders,
+            draggedFolderId: $draggedFolderId,
+            activeInsertionIndex: $insertionIndex,
+            move: model.reorderFolders,
+            targetName: targetName,
+            activeFolderDropTarget: $folderDropTargetInList,
+            addDroppedFolders: addDroppedFolders
+        )
     }
 
     private func folderDropTarget(_ index: Int) -> some View {
@@ -129,14 +144,8 @@ struct SidebarView: View {
         }
         .contentShape(Rectangle())
         .onDrop(
-            of: [.plainText],
-            delegate: FolderInsertionDropDelegate(
-                insertionIndex: index,
-                folders: model.folders,
-                draggedFolderId: $draggedFolderId,
-                activeInsertionIndex: $insertionIndex,
-                move: model.reorderFolders
-            )
+            of: [.plainText, .fileURL],
+            delegate: folderDropDelegate(insertionIndex: index, targetName: "gap \(index)")
         )
     }
 
@@ -248,6 +257,39 @@ struct SidebarView: View {
         }
     }
 
+    private func addDroppedFolders(_ providers: [NSItemProvider]) -> Bool {
+        Task { @MainActor in
+            var folderPaths: [String] = []
+            for provider in providers {
+                guard let url = await Self.droppedFileURL(from: provider), Self.isFolder(url) else { continue }
+                folderPaths.append(VolumePaths.canonical(url.path))
+            }
+            guard !folderPaths.isEmpty else {
+                model.showNotice(
+                    title: "Only folders can be watched",
+                    message: "Drag a folder into the sidebar to watch it."
+                )
+                return
+            }
+            model.leaveRuleEditor { folderPaths.forEach(model.addFolder) }
+        }
+        return true
+    }
+
+    private static func droppedFileURL(from provider: NSItemProvider) async -> URL? {
+        await withCheckedContinuation { continuation in
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                continuation.resume(returning: url)
+            }
+        }
+    }
+
+    /// A package (an app, for example) is a file to the user, as in the folder picker.
+    private static func isFolder(_ url: URL) -> Bool {
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+        return values?.isDirectory == true && values?.isPackage != true
+    }
+
     private func changeFolder(_ folder: WatchedFolder) {
         if let path = FolderPicker.choose(startingAt: folder.path) {
             model.updateFolderPath(folder, path: path)
@@ -273,21 +315,51 @@ private struct FolderInsertionDropDelegate: DropDelegate {
     @Binding var draggedFolderId: String?
     @Binding var activeInsertionIndex: Int?
     let move: ([String]) -> Void
+    /// Different for each target, so that a target clears only its own highlight.
+    /// SwiftUI can tell the old target of the exit after it tells the new target of the entry.
+    let targetName: String
+    @Binding var activeFolderDropTarget: String?
+    let addDroppedFolders: ([NSItemProvider]) -> Bool
+
+    /// A card dragged from this sidebar reorders. A folder from Finder is added.
+    private var isReorder: Bool { draggedFolderId != nil }
+
+    func validateDrop(info: DropInfo) -> Bool {
+        isReorder || info.hasItemsConforming(to: [.fileURL])
+    }
 
     func dropEntered(info: DropInfo) {
-        guard draggedFolderId != nil else { return }
+        guard isReorder else {
+            activeFolderDropTarget = targetName
+            return
+        }
         activeInsertionIndex = insertionIndex
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard isReorder else {
+            activeFolderDropTarget = targetName
+            return DropProposal(operation: .copy)
+        }
         activeInsertionIndex = insertionIndex
         return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {
+        if activeFolderDropTarget == targetName {
+            activeFolderDropTarget = nil
+        }
     }
 
     func performDrop(info: DropInfo) -> Bool {
         defer {
             draggedFolderId = nil
             activeInsertionIndex = nil
+            activeFolderDropTarget = nil
+        }
+
+        guard isReorder else {
+            return addDroppedFolders(info.itemProviders(for: [.fileURL]))
         }
 
         guard
